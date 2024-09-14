@@ -15,31 +15,33 @@ figma.on('selectionchange', () => {
   });
 });
 
+type CustomLayerType = 'ICON' | 'IMAGE' | 'VECTOR' | SceneNode['type'];
+
 interface LayerInfo {
   id: string;
   name: string;
-  type: string;
-  content: string;
+  type: SceneNode['type'];
+  customType?: CustomLayerType;
+  content?: string;
   children: LayerInfo[];
 }
 
 function getLayerInfo(node: SceneNode): LayerInfo {
-  let content = '';
-  if ('characters' in node && node.characters.trim() !== '') {
-    content = node.characters;
-  } else if ('fills' in node && Array.isArray(node.fills) && node.fills.length > 0) {
-    content = 'Filled shape';
-  } else {
-    content = node.type;
-  }
-
   const layerInfo: LayerInfo = {
     id: node.id,
     name: node.name,
     type: node.type,
-    content: content,
     children: []
   };
+
+  // Определение customType
+  if (node.type === 'VECTOR' || node.type === 'STAR' || node.type === 'LINE' || node.type === 'ELLIPSE' || node.type === 'POLYGON') {
+    layerInfo.customType = 'VECTOR';
+  } else if (node.type === 'RECTANGLE') {
+    layerInfo.customType = node.cornerRadius !== figma.mixed && node.cornerRadius > 0 ? 'ICON' : 'IMAGE';
+  } else if (node.type === 'TEXT') {
+    layerInfo.content = node.characters;
+  }
 
   if ('children' in node) {
     layerInfo.children = node.children.map(child => getLayerInfo(child));
@@ -54,6 +56,85 @@ function countLayers(node: SceneNode | LayerInfo): number {
     count += node.children.reduce((sum, child) => sum + countLayers(child), 0);
   }
   return count;
+}
+
+function parseAIResponse(aiMessage: string): { level: string; name: string }[] {
+  const lines = aiMessage.trim().split('\n');
+  const names: { level: string; name: string }[] = [];
+
+  lines.forEach(line => {
+    const match = line.match(/^(\s*)(\d+(\.\d+)*)\s*\.?\s*(.+)$/);
+    if (match) {
+      const [, , level, , name] = match;
+      names.push({
+        level: level,
+        name: name.trim()
+      });
+    }
+  });
+
+  return names;
+}
+
+async function renameLayer(layerInfo: LayerInfo, names: { level: string; name: string }[], path: number[] = []) {
+  console.log(`Attempting to rename layer: ${layerInfo.name} with path ${path.join('.')}`);
+  
+  const exactMatch = names.find(n => n.level === path.join('.'));
+  
+  if (exactMatch) {
+    console.log(`Found exact match: ${exactMatch.name} for level: ${exactMatch.level}`);
+    try {
+      const node = await figma.getNodeByIdAsync(layerInfo.id);
+      if (node) {
+        console.log(`Renaming node ${node.name} to ${exactMatch.name}`);
+        if ('fontName' in node && node.type === 'TEXT') {
+          await figma.loadFontAsync(node.fontName as FontName);
+        }
+        node.name = exactMatch.name;
+      } else {
+        console.error(`Node not found for id: ${layerInfo.id}`);
+      }
+    } catch (error) {
+      console.error(`Error getting or renaming node: ${error}`);
+    }
+  } else {
+    // Если точное соответствие не найдено, ищем ближайшее соответствие
+    const closestMatch = names.reduce((closest, current) => {
+      const currentLevels = current.level.split('.').map(Number);
+      if (currentLevels.every((level, index) => path[index] === level) && 
+          currentLevels.length > closest.level.split('.').length) {
+        return current;
+      }
+      return closest;
+    }, names[0]);
+
+    if (closestMatch) {
+      console.log(`Found closest match: ${closestMatch.name} for level: ${closestMatch.level}`);
+      try {
+        const node = await figma.getNodeByIdAsync(layerInfo.id);
+        if (node) {
+          const remainingPath = path.slice(closestMatch.level.split('.').length);
+          const newName = remainingPath.length > 0 ? `${closestMatch.name} ${remainingPath.join('.')}` : closestMatch.name;
+          console.log(`Renaming node ${node.name} to ${newName}`);
+          if ('fontName' in node && node.type === 'TEXT') {
+            await figma.loadFontAsync(node.fontName as FontName);
+          }
+          node.name = newName;
+        } else {
+          console.error(`Node not found for id: ${layerInfo.id}`);
+        }
+      } catch (error) {
+        console.error(`Error getting or renaming node: ${error}`);
+      }
+    } else {
+      console.log(`No match found for layer: ${layerInfo.name} at path ${path.join('.')}`);
+    }
+  }
+
+  // Рекурсивно обрабатываем дочерние слои
+  for (let i = 0; i < layerInfo.children.length; i++) {
+    await renameLayer(layerInfo.children[i], names, [...path, i + 1]);
+  }
 }
 
 figma.ui.onmessage = async (msg: { type: string }) => {
@@ -72,12 +153,17 @@ figma.ui.onmessage = async (msg: { type: string }) => {
       figma.ui.postMessage({ type: 'layerCount', count: totalLayers });
 
       const contextDescription = `This is a user interface for a messaging application. 
-The selected elements appear to be part of a message component. 
-Please consider the hierarchy and purpose of each element when renaming.`;
+The selected elements are part of the UI components. 
+Please consider the following when renaming:
+- Elements marked as IMAGE are image layers
+- Elements marked as VECTOR are vector shapes or paths
+- Elements marked as ICON are likely icons (vectors wrapped in frames)
+- Text layers will have their content included
+Please provide descriptive names based on the purpose and content of each element.`;
 
       const prompt = `${contextDescription}
 
-Rename the following UI layers based on their context and hierarchy:
+Rename the following UI layers based on their context, hierarchy, and type:
 
 ${JSON.stringify(layerInfos, null, 2)}
 
@@ -112,44 +198,27 @@ The response should be in the format:
       const data = await response.json();
       const aiMessage = data.choices[0]?.message?.content;
 
-      if (!aiMessage) {
-        throw new Error('No response from AI model');
-      }
+      console.log('AI response:', aiMessage);
 
-      console.log('AI response:', aiMessage); // Add this line for debugging
-
-      const newNames = aiMessage.trim().split('\n').map((line: string) => {
-        const match = line.match(/^(\d+(\.\d+)*)\.\s*(.+)$/);
-        return match ? { level: match[1], name: match[3].trim() } : null;
-      }).filter((item: { level: string; name: string } | null): item is { level: string; name: string } => item !== null);
+      const newNames = parseAIResponse(aiMessage);
+      console.log('Parsed names:', newNames);
 
       if (newNames.length === 0) {
         throw new Error('Failed to parse AI response');
       }
 
-      function renameLayer(layerInfo: LayerInfo, names: { level: string; name: string }[], prefix: string = '') {
-        const currentName = names.find(n => n.level === prefix + '1');
-        if (currentName) {
-          const node = figma.getNodeById(layerInfo.id) as SceneNode;
-          if (node) {
-            node.name = currentName.name;
-          }
-        }
-
-        layerInfo.children.forEach((child, index) => {
-          renameLayer(child, names, prefix ? `${prefix}${index + 1}.` : `${index + 1}.`);
-        });
-      }
-
-      layerInfos.forEach((layerInfo, index) => {
-        renameLayer(layerInfo, newNames, `${index + 1}.`);
+      for (let index = 0; index < layerInfos.length; index++) {
+        const layerInfo = layerInfos[index];
+        console.log(`Processing root layer: ${layerInfo.name}`);
+        console.log('Layer structure:', JSON.stringify(layerInfo, null, 2));
+        await renameLayer(layerInfo, newNames, [index + 1]);
         figma.ui.postMessage({ type: 'progress', current: index + 1, total: layerInfos.length });
-      });
+      }
 
       figma.ui.postMessage({ type: 'complete' });
     } catch (error: unknown) {
       console.error('Error:', error);
-      figma.ui.postMessage({ type: 'error', message: (error as Error).message });
+      figma.ui.postMessage({ type: 'error', message: (error instanceof Error ? error.message : String(error)) });
     }
   } else if (msg.type === 'cancel') {
     figma.closePlugin();
