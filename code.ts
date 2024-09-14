@@ -7,20 +7,53 @@ figma.ui.postMessage({ type: 'init', layerCount: figma.currentPage.selection.len
 
 figma.on('selectionchange', () => {
   const selectedLayers = figma.currentPage.selection;
+  const totalLayers = selectedLayers.reduce((sum, node) => sum + countLayers(node), 0);
   figma.ui.postMessage({ 
     type: 'selectionUpdate', 
-    layerCount: selectedLayers.length 
+    selectedCount: selectedLayers.length,
+    totalCount: totalLayers
   });
 });
-  
-function getAllLayers(node: SceneNode): SceneNode[] {
-  let layers: SceneNode[] = [node];
-  if ('children' in node) {
-    for (const child of node.children) {
-      layers = layers.concat(getAllLayers(child));
-    }
+
+interface LayerInfo {
+  id: string;
+  name: string;
+  type: string;
+  content: string;
+  children: LayerInfo[];
+}
+
+function getLayerInfo(node: SceneNode): LayerInfo {
+  let content = '';
+  if ('characters' in node && node.characters.trim() !== '') {
+    content = node.characters;
+  } else if ('fills' in node && Array.isArray(node.fills) && node.fills.length > 0) {
+    content = 'Filled shape';
+  } else {
+    content = node.type;
   }
-  return layers;
+
+  const layerInfo: LayerInfo = {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    content: content,
+    children: []
+  };
+
+  if ('children' in node) {
+    layerInfo.children = node.children.map(child => getLayerInfo(child));
+  }
+
+  return layerInfo;
+}
+
+function countLayers(node: SceneNode | LayerInfo): number {
+  let count = 1;
+  if ('children' in node) {
+    count += node.children.reduce((sum, child) => sum + countLayers(child), 0);
+  }
+  return count;
 }
 
 figma.ui.onmessage = async (msg: { type: string }) => {
@@ -33,37 +66,26 @@ figma.ui.onmessage = async (msg: { type: string }) => {
         return;
       }
 
-      const allLayers: SceneNode[] = selection.reduce((acc: SceneNode[], node: SceneNode) => {
-        return acc.concat(getAllLayers(node));
-      }, []);
+      const layerInfos = selection.map(node => getLayerInfo(node));
+      const totalLayers = layerInfos.reduce((sum, info) => sum + countLayers(info), 0);
 
-      const layerData = allLayers.map((node: SceneNode, index: number) => {
-        let content = '';
+      figma.ui.postMessage({ type: 'layerCount', count: totalLayers });
 
-        if ('characters' in node && node.characters.trim() !== '') {
-          content = node.characters;
-        } else if ('name' in node && node.name.trim() !== '') {
-          content = node.name;
-        } else if ('fills' in node && Array.isArray(node.fills) && node.fills.length > 0) {
-          content = 'Filled shape';
-        } else {
-          content = node.type;
-        }
+      const contextDescription = `This is a user interface for a messaging application. 
+The selected elements appear to be part of a message component. 
+Please consider the hierarchy and purpose of each element when renaming.`;
 
-        return {
-          id: node.id,
-          index: index,
-          type: node.type,
-          content: content,
-        };
-      });
+      const prompt = `${contextDescription}
 
-      const prompt = `Rename the following UI layers based on their context:
+Rename the following UI layers based on their context and hierarchy:
 
-${layerData.map((item: { type: string; content: string }, i: number) => `${i + 1}. ${item.type} - "${item.content}"`).join('\n')}
+${JSON.stringify(layerInfos, null, 2)}
 
-Provide concise and descriptive names for each layer. The response should be in the format:
+Provide concise and descriptive names for each layer, maintaining the hierarchy. 
+The response should be in the format:
 1. NewNameOne
+   1.1 ChildNameOne
+   1.2 ChildNameTwo
 2. NewNameTwo
 ...`;
 
@@ -97,19 +119,31 @@ Provide concise and descriptive names for each layer. The response should be in 
       console.log('AI response:', aiMessage); // Add this line for debugging
 
       const newNames = aiMessage.trim().split('\n').map((line: string) => {
-        const match = line.match(/^\d+\.\s*(.+)$/);
-        return match ? match[1].trim() : null;
-      }).filter((name: string | null): name is string => name !== null);
+        const match = line.match(/^(\d+(\.\d+)*)\.\s*(.+)$/);
+        return match ? { level: match[1], name: match[3].trim() } : null;
+      }).filter((item: { level: string; name: string } | null): item is { level: string; name: string } => item !== null);
 
       if (newNames.length === 0) {
         throw new Error('Failed to parse AI response');
       }
 
-      allLayers.forEach((node: SceneNode, index: number) => {
-        if (newNames[index]) {
-          node.name = newNames[index];
+      function renameLayer(layerInfo: LayerInfo, names: { level: string; name: string }[], prefix: string = '') {
+        const currentName = names.find(n => n.level === prefix + '1');
+        if (currentName) {
+          const node = figma.getNodeById(layerInfo.id) as SceneNode;
+          if (node) {
+            node.name = currentName.name;
+          }
         }
-        figma.ui.postMessage({ type: 'progress', current: index + 1, total: allLayers.length });
+
+        layerInfo.children.forEach((child, index) => {
+          renameLayer(child, names, prefix ? `${prefix}${index + 1}.` : `${index + 1}.`);
+        });
+      }
+
+      layerInfos.forEach((layerInfo, index) => {
+        renameLayer(layerInfo, newNames, `${index + 1}.`);
+        figma.ui.postMessage({ type: 'progress', current: index + 1, total: layerInfos.length });
       });
 
       figma.ui.postMessage({ type: 'complete' });
@@ -121,9 +155,11 @@ Provide concise and descriptive names for each layer. The response should be in 
     figma.closePlugin();
   } else if (msg.type === 'requestSelection') {
     const selectedLayers = figma.currentPage.selection;
+    const totalLayers = selectedLayers.reduce((sum, node) => sum + countLayers(node), 0);
     figma.ui.postMessage({ 
       type: 'selectionUpdate', 
-      layerCount: selectedLayers.length 
+      selectedCount: selectedLayers.length,
+      totalCount: totalLayers
     });
   }
 };

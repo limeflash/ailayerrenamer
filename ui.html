@@ -6,12 +6,14 @@
 <button id="start" disabled>Start Renaming</button>
 <button id="cancel">Cancel</button>
 <script>
+let selectedLayers = 0;
 let totalLayers = 0;
 
 window.onmessage = (event) => {
   const message = event.data.pluginMessage;
-  if (message.type === 'init' || message.type === 'selectionUpdate') {
-    totalLayers = message.layerCount;
+  if (message.type === 'selectionUpdate') {
+    selectedLayers = message.selectedCount;
+    totalLayers = message.totalCount;
     updateUI();
   } else if (message.type === 'progress') {
     document.getElementById('progress').textContent = `Progress: ${message.current}/${message.total}`;
@@ -28,9 +30,9 @@ window.onmessage = (event) => {
 };
 
 function updateUI() {
-  document.getElementById('layerCount').textContent = `Selected layers: ${totalLayers}`;
-  document.getElementById('start').disabled = totalLayers === 0;
-  document.getElementById('status').textContent = totalLayers === 0 ? 'No layers selected.' : 'Ready to rename layers.';
+  document.getElementById('layerCount').textContent = `Selected layers: ${selectedLayers} (Total including sublayers: ${totalLayers})`;
+  document.getElementById('start').disabled = selectedLayers === 0;
+  document.getElementById('status').textContent = selectedLayers === 0 ? 'No layers selected.' : 'Ready to rename layers.';
   document.getElementById('progress').textContent = '';
   document.getElementById('error').textContent = '';
 }
