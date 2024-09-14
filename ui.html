@@ -1,0 +1,51 @@
+<h2>AI Rename Layers</h2>
+<p id="status">Initializing...</p>
+<p id="layerCount"></p>
+<p id="progress"></p>
+<p id="error" style="color: red;"></p>
+<button id="start" disabled>Start Renaming</button>
+<button id="cancel">Cancel</button>
+<script>
+let totalLayers = 0;
+
+window.onmessage = (event) => {
+  const message = event.data.pluginMessage;
+  if (message.type === 'init' || message.type === 'selectionUpdate') {
+    totalLayers = message.layerCount;
+    updateUI();
+  } else if (message.type === 'progress') {
+    document.getElementById('progress').textContent = `Progress: ${message.current}/${message.total}`;
+  } else if (message.type === 'complete') {
+    document.getElementById('status').textContent = 'Renaming complete!';
+    document.getElementById('progress').textContent = '';
+    document.getElementById('start').disabled = false;
+    document.getElementById('error').textContent = '';
+  } else if (message.type === 'error') {
+    document.getElementById('status').textContent = 'Error occurred';
+    document.getElementById('error').textContent = `Error: ${message.message}`;
+    document.getElementById('start').disabled = false;
+  }
+};
+
+function updateUI() {
+  document.getElementById('layerCount').textContent = `Selected layers: ${totalLayers}`;
+  document.getElementById('start').disabled = totalLayers === 0;
+  document.getElementById('status').textContent = totalLayers === 0 ? 'No layers selected.' : 'Ready to rename layers.';
+  document.getElementById('progress').textContent = '';
+  document.getElementById('error').textContent = '';
+}
+
+document.getElementById('start').onclick = () => {
+  parent.postMessage({ pluginMessage: { type: 'start-renaming' } }, '*');
+  document.getElementById('status').textContent = 'Renaming layers...';
+  document.getElementById('start').disabled = true;
+  document.getElementById('error').textContent = '';
+};
+
+document.getElementById('cancel').onclick = () => {
+  parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
+};
+
+// Request initial selection info
+parent.postMessage({ pluginMessage: { type: 'requestSelection' } }, '*');
+</script>
