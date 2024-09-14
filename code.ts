@@ -5,14 +5,13 @@ interface LayerInfo {
   name: string;
   type: string;
   children: LayerInfo[];
-  [key: string]: any;
 }
 
 const systemMessage = `You are an AI assistant specialized in renaming Figma layers.
 Your task is to provide concise and descriptive names for each layer based on their context, hierarchy, and type.
 Analyze the structure and content of the layers to determine appropriate names.
 Provide names that reflect the purpose and content of each element.
-The response should be a JSON object with layer IDs as keys and new names as values.`;
+The response should be a JSON object with layer IDs as keys and new names as values. Only respond with JSON and nothing else!!!`;
 
 figma.showUI(__html__);
 
@@ -25,11 +24,7 @@ function getLayerInfo(node: SceneNode): LayerInfo {
   };
 
   if ('children' in node) {
-    info.children = (node.children as SceneNode[]).map(getLayerInfo);
-  }
-
-  if (node.type === 'TEXT') {
-    info.characters = node.characters;
+    info.children = node.children.map(getLayerInfo);
   }
 
   return info;
@@ -40,12 +35,10 @@ function countLayers(layerInfo: LayerInfo): number {
 }
 
 function countTokens(text: string): number {
-  // Это простая оценка, не точная для всех моделей
   return text.split(/\s+/).length;
 }
 
 function estimateCost(inputTokens: number, outputTokens: number): number {
-  // Обновите эти значения в соответствии с актуальной ценовой политикой
   const inputCost = inputTokens * 0.00003;
   const outputCost = outputTokens * 0.00006;
   return inputCost + outputCost;
@@ -55,9 +48,6 @@ async function renameLayerRecursively(layerInfo: LayerInfo, newNames: Record<str
   if (layerInfo.id in newNames) {
     const node = await figma.getNodeByIdAsync(layerInfo.id);
     if (node) {
-      if ('fontName' in node && node.type === 'TEXT') {
-        await figma.loadFontAsync(node.fontName as FontName);
-      }
       node.name = newNames[layerInfo.id];
     }
   }
@@ -79,12 +69,10 @@ function updateSelectionInfo() {
   });
 }
 
-// Вызывайте эту функцию при запуске плагина и при изменении выделения
 figma.on('selectionchange', () => {
   updateSelectionInfo();
 });
 
-// Вызовите функцию сразу при запуске плагина
 updateSelectionInfo();
 
 figma.ui.onmessage = async (msg: { type: string; temperature?: number }) => {
@@ -99,7 +87,7 @@ figma.ui.onmessage = async (msg: { type: string; temperature?: number }) => {
       return;
     }
 
-    const layerInfos = selection.map(node => getLayerInfo(node));
+    const layerInfos = selection.map(getLayerInfo);
     console.log('Layer infos:', layerInfos);
 
     const totalLayers = layerInfos.reduce((sum, info) => sum + countLayers(info), 0);
@@ -107,19 +95,10 @@ figma.ui.onmessage = async (msg: { type: string; temperature?: number }) => {
 
     figma.ui.postMessage({ type: 'layerCount', count: totalLayers });
 
-    const temperature = msg.temperature || 0.85;
+    const temperature = msg.temperature || 0.7;
     console.log('Temperature:', temperature);
 
-    const payload = {
-      model: 'nousresearch/hermes-3-llama-3.1-405b:free',
-      messages: [
-        { role: 'system', content: systemMessage },
-        { role: 'user', content: JSON.stringify(layerInfos, null, 2) },
-      ],
-      temperature: temperature,
-    };
-
-    const inputTokens = countTokens(systemMessage) + countTokens(JSON.stringify(layerInfos, null, 2));
+    const inputTokens = countTokens(JSON.stringify(layerInfos));
     console.log(`Estimated input tokens: ${inputTokens}`);
 
     try {
@@ -132,7 +111,7 @@ figma.ui.onmessage = async (msg: { type: string; temperature?: number }) => {
           'HTTP-Referer': 'https://www.figma.com/'
         },
         body: JSON.stringify({
-          model: 'nousresearch/hermes-3-llama-3.1-405b:free',
+          model: 'meta-llama/llama-3.1-8b-instruct:free',
           messages: [
             { role: 'system', content: systemMessage },
             { role: 'user', content: JSON.stringify(layerInfos, null, 2) },
@@ -147,47 +126,71 @@ figma.ui.onmessage = async (msg: { type: string; temperature?: number }) => {
         throw new Error(`API request failed: ${response.status} ${response.statusText}`);
       }
 
-      const responseText = await response.text();
-      console.log('Raw API response:', responseText);
-
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('Error parsing JSON:', parseError);
-        throw new Error('Failed to parse API response');
-      }
-
+      const data = await response.json();
       console.log('Parsed API response:', data);
 
-      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-        console.error('Unexpected API response structure:', data);
-        throw new Error('Unexpected API response structure');
+      const aiResponse = data.choices[0].message.content;
+      console.log('AI response:', aiResponse);
+
+      try {
+        let jsonContent: string;
+        // Проверяем, начинается ли ответ с '{'
+        if (aiResponse.trim().startsWith('{')) {
+          jsonContent = aiResponse.trim();
+        } else {
+          // Если нет, ищем JSON в ответе AI
+          const jsonMatch = aiResponse.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+          if (!jsonMatch) {
+            throw new Error('Could not find JSON in AI response');
+          }
+          jsonContent = jsonMatch[1];
+        }
+
+        console.log('Extracted JSON content:', jsonContent);
+
+        const newNames = JSON.parse(jsonContent);
+        console.log('Parsed names:', newNames);
+
+        if (typeof newNames !== 'object' || newNames === null) {
+          throw new Error('Invalid JSON structure in AI response');
+        }
+
+        // Прове��ка на пустой объект
+        if (Object.keys(newNames).length === 0) {
+          throw new Error('AI response contains an empty JSON object');
+        }
+
+        const outputTokens = countTokens(aiResponse);
+        console.log(`Estimated output tokens: ${outputTokens}`);
+
+        const estimatedCost = estimateCost(inputTokens, outputTokens);
+        console.log(`Estimated cost: $${estimatedCost.toFixed(6)}`);
+
+        figma.ui.postMessage({ 
+          type: 'tokenInfo', 
+          inputTokens, 
+          outputTokens, 
+          estimatedCost: estimatedCost.toFixed(6) 
+        });
+
+        // Переименование слоев
+        for (const layerInfo of layerInfos) {
+          await renameLayerRecursively(layerInfo, newNames);
+        }
+
+        figma.ui.postMessage({ type: 'complete' });
+
+      } catch (jsonError: unknown) {
+        console.error('JSON parsing error:', jsonError);
+        if (jsonError instanceof Error) {
+          figma.ui.postMessage({ type: 'error', message: 'Failed to parse AI response: ' + jsonError.message });
+        } else {
+          figma.ui.postMessage({ type: 'error', message: 'Failed to parse AI response: Unknown error' });
+        }
+        return;
       }
 
-      const outputTokens = countTokens(data.choices[0].message.content);
-      console.log(`Estimated output tokens: ${outputTokens}`);
-
-      const estimatedCost = estimateCost(inputTokens, outputTokens);
-      console.log(`Estimated cost: $${estimatedCost.toFixed(6)}`);
-
-      figma.ui.postMessage({ 
-        type: 'tokenInfo', 
-        inputTokens, 
-        outputTokens, 
-        estimatedCost: estimatedCost.toFixed(6) 
-      });
-
-      const newNames = JSON.parse(data.choices[0].message.content);
-      console.log('Parsed names:', newNames);
-
-      for (const layerInfo of layerInfos) {
-        await renameLayerRecursively(layerInfo, newNames);
-        figma.ui.postMessage({ type: 'progress', current: layerInfos.indexOf(layerInfo) + 1, total: layerInfos.length });
-      }
-
-      figma.ui.postMessage({ type: 'complete' });
-    } catch (error: unknown) {
+    } catch (error) {
       console.error('Fetch error:', error);
       if (error instanceof Error) {
         figma.ui.postMessage({ type: 'error', message: error.message });
@@ -196,17 +199,6 @@ figma.ui.onmessage = async (msg: { type: string; temperature?: number }) => {
       }
     }
   } else if (msg.type === 'cancel') {
-    console.log('Cancelling plugin');
     figma.closePlugin();
-  } else if (msg.type === 'requestSelection') {
-    const selectedLayers = figma.currentPage.selection;
-    console.log('Selected layers:', selectedLayers);
-    const totalLayers = selectedLayers.reduce((sum, node) => sum + countLayers(getLayerInfo(node)), 0);
-    console.log('Total layers (including sublayers):', totalLayers);
-    figma.ui.postMessage({ 
-      type: 'selectionUpdate', 
-      selectedCount: selectedLayers.length,
-      totalCount: totalLayers
-    });
   }
 };
