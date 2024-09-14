@@ -1,230 +1,208 @@
-// Replace these with your actual API key and site details
-const OPENROUTER_API_KEY = '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';
-
-figma.showUI(__html__, { width: 300, height: 200 });
-
-figma.ui.postMessage({ type: 'init', layerCount: figma.currentPage.selection.length });
-
-figma.on('selectionchange', () => {
-  const selectedLayers = figma.currentPage.selection;
-  const totalLayers = selectedLayers.reduce((sum, node) => sum + countLayers(node), 0);
-  figma.ui.postMessage({ 
-    type: 'selectionUpdate', 
-    selectedCount: selectedLayers.length,
-    totalCount: totalLayers
-  });
-});
-
-type CustomLayerType = 'ICON' | 'IMAGE' | 'VECTOR' | SceneNode['type'];
+const OPENROUTER_API_KEY = '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';
 
 interface LayerInfo {
   id: string;
   name: string;
-  type: SceneNode['type'];
-  customType?: CustomLayerType;
-  content?: string;
+  type: string;
   children: LayerInfo[];
+  [key: string]: any;
 }
 
+const systemMessage = `You are an AI assistant specialized in renaming Figma layers.
+Your task is to provide concise and descriptive names for each layer based on their context, hierarchy, and type.
+Analyze the structure and content of the layers to determine appropriate names.
+Provide names that reflect the purpose and content of each element.
+The response should be a JSON object with layer IDs as keys and new names as values.`;
+
+figma.showUI(__html__);
+
 function getLayerInfo(node: SceneNode): LayerInfo {
-  const layerInfo: LayerInfo = {
+  const info: LayerInfo = {
     id: node.id,
     name: node.name,
     type: node.type,
-    children: []
+    children: [],
   };
 
-  // Определение customType
-  if (node.type === 'VECTOR' || node.type === 'STAR' || node.type === 'LINE' || node.type === 'ELLIPSE' || node.type === 'POLYGON') {
-    layerInfo.customType = 'VECTOR';
-  } else if (node.type === 'RECTANGLE') {
-    layerInfo.customType = node.cornerRadius !== figma.mixed && node.cornerRadius > 0 ? 'ICON' : 'IMAGE';
-  } else if (node.type === 'TEXT') {
-    layerInfo.content = node.characters;
-  }
-
   if ('children' in node) {
-    layerInfo.children = node.children.map(child => getLayerInfo(child));
+    info.children = (node.children as SceneNode[]).map(getLayerInfo);
   }
 
-  return layerInfo;
+  if (node.type === 'TEXT') {
+    info.characters = node.characters;
+  }
+
+  return info;
 }
 
-function countLayers(node: SceneNode | LayerInfo): number {
-  let count = 1;
-  if ('children' in node) {
-    count += node.children.reduce((sum, child) => sum + countLayers(child), 0);
-  }
-  return count;
+function countLayers(layerInfo: LayerInfo): number {
+  return 1 + layerInfo.children.reduce((sum, child) => sum + countLayers(child), 0);
 }
 
-function parseAIResponse(aiMessage: string): { level: string; name: string }[] {
-  const lines = aiMessage.trim().split('\n');
-  const names: { level: string; name: string }[] = [];
+function countTokens(text: string): number {
+  // Это простая оценка, не точная для всех моделей
+  return text.split(/\s+/).length;
+}
 
-  lines.forEach(line => {
-    const match = line.match(/^(\s*)(\d+(\.\d+)*)\s*\.?\s*(.+)$/);
-    if (match) {
-      const [, , level, , name] = match;
-      names.push({
-        level: level,
-        name: name.trim()
-      });
+function estimateCost(inputTokens: number, outputTokens: number): number {
+  // Обновите эти значения в соответствии с актуальной ценовой политикой
+  const inputCost = inputTokens * 0.00003;
+  const outputCost = outputTokens * 0.00006;
+  return inputCost + outputCost;
+}
+
+async function renameLayerRecursively(layerInfo: LayerInfo, newNames: Record<string, string>) {
+  if (layerInfo.id in newNames) {
+    const node = await figma.getNodeByIdAsync(layerInfo.id);
+    if (node) {
+      if ('fontName' in node && node.type === 'TEXT') {
+        await figma.loadFontAsync(node.fontName as FontName);
+      }
+      node.name = newNames[layerInfo.id];
     }
+  }
+
+  for (const child of layerInfo.children) {
+    await renameLayerRecursively(child, newNames);
+  }
+}
+
+function updateSelectionInfo() {
+  const selection = figma.currentPage.selection;
+  const selectedLayers = selection.length;
+  const totalLayers = selection.reduce((sum, node) => sum + countLayers(getLayerInfo(node)), 0);
+  
+  figma.ui.postMessage({ 
+    type: 'selectionUpdate', 
+    selectedCount: selectedLayers,
+    totalCount: totalLayers
   });
-
-  return names;
 }
 
-async function renameLayer(layerInfo: LayerInfo, names: { level: string; name: string }[], path: number[] = []) {
-  console.log(`Attempting to rename layer: ${layerInfo.name} with path ${path.join('.')}`);
-  
-  const exactMatch = names.find(n => n.level === path.join('.'));
-  
-  if (exactMatch) {
-    console.log(`Found exact match: ${exactMatch.name} for level: ${exactMatch.level}`);
-    try {
-      const node = await figma.getNodeByIdAsync(layerInfo.id);
-      if (node) {
-        console.log(`Renaming node ${node.name} to ${exactMatch.name}`);
-        if ('fontName' in node && node.type === 'TEXT') {
-          await figma.loadFontAsync(node.fontName as FontName);
-        }
-        node.name = exactMatch.name;
-      } else {
-        console.error(`Node not found for id: ${layerInfo.id}`);
-      }
-    } catch (error) {
-      console.error(`Error getting or renaming node: ${error}`);
-    }
-  } else {
-    // Если точное соответствие не найдено, ищем ближайшее соответствие
-    const closestMatch = names.reduce((closest, current) => {
-      const currentLevels = current.level.split('.').map(Number);
-      if (currentLevels.every((level, index) => path[index] === level) && 
-          currentLevels.length > closest.level.split('.').length) {
-        return current;
-      }
-      return closest;
-    }, names[0]);
+// Вызывайте эту функцию при запуске плагина и при изменении выделения
+figma.on('selectionchange', () => {
+  updateSelectionInfo();
+});
 
-    if (closestMatch) {
-      console.log(`Found closest match: ${closestMatch.name} for level: ${closestMatch.level}`);
-      try {
-        const node = await figma.getNodeByIdAsync(layerInfo.id);
-        if (node) {
-          const remainingPath = path.slice(closestMatch.level.split('.').length);
-          const newName = remainingPath.length > 0 ? `${closestMatch.name} ${remainingPath.join('.')}` : closestMatch.name;
-          console.log(`Renaming node ${node.name} to ${newName}`);
-          if ('fontName' in node && node.type === 'TEXT') {
-            await figma.loadFontAsync(node.fontName as FontName);
-          }
-          node.name = newName;
-        } else {
-          console.error(`Node not found for id: ${layerInfo.id}`);
-        }
-      } catch (error) {
-        console.error(`Error getting or renaming node: ${error}`);
-      }
-    } else {
-      console.log(`No match found for layer: ${layerInfo.name} at path ${path.join('.')}`);
-    }
-  }
+// Вызовите функцию сразу при запуске плагина
+updateSelectionInfo();
 
-  // Рекурсивно обрабатываем дочерние слои
-  for (let i = 0; i < layerInfo.children.length; i++) {
-    await renameLayer(layerInfo.children[i], names, [...path, i + 1]);
-  }
-}
-
-figma.ui.onmessage = async (msg: { type: string }) => {
+figma.ui.onmessage = async (msg: { type: string; temperature?: number }) => {
+  console.log('Received message:', msg);
   if (msg.type === 'start-renaming') {
+    const selection = figma.currentPage.selection;
+    console.log('Current selection:', selection);
+
+    if (selection.length === 0) {
+      console.log('No layers selected');
+      figma.ui.postMessage({ type: 'complete', message: 'No layers selected' });
+      return;
+    }
+
+    const layerInfos = selection.map(node => getLayerInfo(node));
+    console.log('Layer infos:', layerInfos);
+
+    const totalLayers = layerInfos.reduce((sum, info) => sum + countLayers(info), 0);
+    console.log('Total layers:', totalLayers);
+
+    figma.ui.postMessage({ type: 'layerCount', count: totalLayers });
+
+    const temperature = msg.temperature || 0.85;
+    console.log('Temperature:', temperature);
+
+    const payload = {
+      model: 'nousresearch/hermes-3-llama-3.1-405b:free',
+      messages: [
+        { role: 'system', content: systemMessage },
+        { role: 'user', content: JSON.stringify(layerInfos, null, 2) },
+      ],
+      temperature: temperature,
+    };
+
+    const inputTokens = countTokens(systemMessage) + countTokens(JSON.stringify(layerInfos, null, 2));
+    console.log(`Estimated input tokens: ${inputTokens}`);
+
     try {
-      const selection = figma.currentPage.selection;
-
-      if (selection.length === 0) {
-        figma.ui.postMessage({ type: 'complete' });
-        return;
-      }
-
-      const layerInfos = selection.map(node => getLayerInfo(node));
-      const totalLayers = layerInfos.reduce((sum, info) => sum + countLayers(info), 0);
-
-      figma.ui.postMessage({ type: 'layerCount', count: totalLayers });
-
-      const contextDescription = `This is a user interface for a messaging application. 
-The selected elements are part of the UI components. 
-Please consider the following when renaming:
-- Elements marked as IMAGE are image layers
-- Elements marked as VECTOR are vector shapes or paths
-- Elements marked as ICON are likely icons (vectors wrapped in frames)
-- Text layers will have their content included
-Please provide descriptive names based on the purpose and content of each element.`;
-
-      const prompt = `${contextDescription}
-
-Rename the following UI layers based on their context, hierarchy, and type:
-
-${JSON.stringify(layerInfos, null, 2)}
-
-Provide concise and descriptive names for each layer, maintaining the hierarchy. 
-The response should be in the format:
-1. NewNameOne
-   1.1 ChildNameOne
-   1.2 ChildNameTwo
-2. NewNameTwo
-...`;
-
-      const payload = {
-        model: 'mattshumer/reflection-70b:free',
-        messages: [
-          { role: 'user', content: prompt },
-        ],
-      };
-
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
+          'X-Title': 'Figma AI Rename Layers Plugin',
+          'HTTP-Referer': 'https://www.figma.com/'
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          model: 'nousresearch/hermes-3-llama-3.1-405b:free',
+          messages: [
+            { role: 'system', content: systemMessage },
+            { role: 'user', content: JSON.stringify(layerInfos, null, 2) },
+          ],
+          temperature: temperature,
+        }),
       });
 
       if (!response.ok) {
+        const errorData = await response.text();
+        console.error('API Error:', errorData);
         throw new Error(`API request failed: ${response.status} ${response.statusText}`);
       }
 
-      const data = await response.json();
-      const aiMessage = data.choices[0]?.message?.content;
+      const responseText = await response.text();
+      console.log('Raw API response:', responseText);
 
-      console.log('AI response:', aiMessage);
-
-      const newNames = parseAIResponse(aiMessage);
-      console.log('Parsed names:', newNames);
-
-      if (newNames.length === 0) {
-        throw new Error('Failed to parse AI response');
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Error parsing JSON:', parseError);
+        throw new Error('Failed to parse API response');
       }
 
-      for (let index = 0; index < layerInfos.length; index++) {
-        const layerInfo = layerInfos[index];
-        console.log(`Processing root layer: ${layerInfo.name}`);
-        console.log('Layer structure:', JSON.stringify(layerInfo, null, 2));
-        await renameLayer(layerInfo, newNames, [index + 1]);
-        figma.ui.postMessage({ type: 'progress', current: index + 1, total: layerInfos.length });
+      console.log('Parsed API response:', data);
+
+      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+        console.error('Unexpected API response structure:', data);
+        throw new Error('Unexpected API response structure');
+      }
+
+      const outputTokens = countTokens(data.choices[0].message.content);
+      console.log(`Estimated output tokens: ${outputTokens}`);
+
+      const estimatedCost = estimateCost(inputTokens, outputTokens);
+      console.log(`Estimated cost: $${estimatedCost.toFixed(6)}`);
+
+      figma.ui.postMessage({ 
+        type: 'tokenInfo', 
+        inputTokens, 
+        outputTokens, 
+        estimatedCost: estimatedCost.toFixed(6) 
+      });
+
+      const newNames = JSON.parse(data.choices[0].message.content);
+      console.log('Parsed names:', newNames);
+
+      for (const layerInfo of layerInfos) {
+        await renameLayerRecursively(layerInfo, newNames);
+        figma.ui.postMessage({ type: 'progress', current: layerInfos.indexOf(layerInfo) + 1, total: layerInfos.length });
       }
 
       figma.ui.postMessage({ type: 'complete' });
     } catch (error: unknown) {
-      console.error('Error:', error);
-      figma.ui.postMessage({ type: 'error', message: (error instanceof Error ? error.message : String(error)) });
+      console.error('Fetch error:', error);
+      if (error instanceof Error) {
+        figma.ui.postMessage({ type: 'error', message: error.message });
+      } else {
+        figma.ui.postMessage({ type: 'error', message: 'An unknown error occurred' });
+      }
     }
   } else if (msg.type === 'cancel') {
+    console.log('Cancelling plugin');
     figma.closePlugin();
   } else if (msg.type === 'requestSelection') {
     const selectedLayers = figma.currentPage.selection;
-    const totalLayers = selectedLayers.reduce((sum, node) => sum + countLayers(node), 0);
+    console.log('Selected layers:', selectedLayers);
+    const totalLayers = selectedLayers.reduce((sum, node) => sum + countLayers(getLayerInfo(node)), 0);
+    console.log('Total layers (including sublayers):', totalLayers);
     figma.ui.postMessage({ 
       type: 'selectionUpdate', 
       selectedCount: selectedLayers.length,
@@ -232,5 +210,3 @@ The response should be in the format:
     });
   }
 };
-
-
