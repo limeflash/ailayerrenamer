@@ -1,6 +1,5 @@
 let OPENROUTER_API_KEY = '';
 let ANALYSIS_MODEL = '';
-let RENAMING_MODEL = '';
 
 function logWithoutSensitiveData(data: any) {
   const sanitized = JSON.parse(JSON.stringify(data));
@@ -17,15 +16,15 @@ interface LayerInfo {
   children: LayerInfo[];
 }
 
-const systemMessage = `You are an AI assistant specialized in analyzing UI screenshots. Your task is to provide a brief, focused context of the UI in the image. Follow these strict guidelines:
+const systemMessage = `You are an AI assistant specialized in analyzing UI screenshots and renaming layers. Your task is to provide a brief, focused context of the UI in the image and suggest appropriate names for the layers. Follow these guidelines:
 
-1. Identify the type of application or website (e.g., e-commerce, social media, productivity app).
-2. Describe the main purpose or function of the visible UI (e.g., product page, user profile, dashboard).
-3. List the key UI elements present (e.g., header, navigation menu, content area, sidebar).
-4. Mention any prominent features or interactive elements (e.g., search bar, login form, product grid).
-5. Note the overall color scheme and any standout visual elements.
+1. Identify the type of application or website.
+2. Describe the main purpose or function of the visible UI.
+3. List the key UI elements present.
+4. Suggest names for the layers based on their function and hierarchy.
+5. Use clear, descriptive names without underscores or dashes.
 
-Provide only the essential context in 3-5 concise sentences. Do not include any analysis, suggestions, or explanations beyond the direct observation of the UI elements.`;
+Provide the essential context in 3-5 concise sentences, followed by a JSON object containing layer IDs as keys and suggested names as values.`;
 
 figma.showUI(__html__, { width: 450, height: 550 });
 
@@ -94,14 +93,7 @@ async function captureScreenshot(): Promise<Uint8Array> {
   }
 }
 
-interface AnalysisResult {
-  structure: string;
-  colorTheme: string;
-}
-
-let analysisResult: AnalysisResult | null = null;
-
-async function analyzeScreenshot(screenshot: Uint8Array): Promise<AnalysisResult> {
+async function analyzeAndRename(screenshot: Uint8Array, layerInfo: LayerInfo): Promise<void> {
   const base64Image = uint8ArrayToBase64(screenshot);
 
   console.log('OPENROUTER_API_KEY length:', OPENROUTER_API_KEY.length);
@@ -120,11 +112,12 @@ async function analyzeScreenshot(screenshot: Uint8Array): Promise<AnalysisResult
       messages: [
         { role: 'system', content: systemMessage },
         { role: 'user', content: [
-          { type: 'text', text: 'Analyze this UI screenshot and provide a hierarchical structure for layer naming:' },
-          { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }
+          { type: 'text', text: 'Analyze this UI screenshot and suggest names for the layers. Here is the current layer structure:' },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } },
+          { type: 'text', text: JSON.stringify(layerInfo, null, 2) }
         ]},
       ],
-      max_tokens: 1000,
+      max_tokens: 2000,
     }),
   };
 
@@ -141,114 +134,96 @@ async function analyzeScreenshot(screenshot: Uint8Array): Promise<AnalysisResult
   const data = await response.json();
   const content = data.choices[0].message.content;
   
-  // Improved structure parsing
-  const structureMatch = content.match(/UI Structure:([\s\S]*?)(?=Color Theme:|$)/i);
-  const colorThemeMatch = content.match(/Color Theme:([\s\S]*?)$/i);
-  
-  analysisResult = {
-    structure: structureMatch ? structureMatch[1].trim() : content.trim(),
-    colorTheme: colorThemeMatch ? colorThemeMatch[1].trim() : ''
-  };
-  
-  console.log('Analysis Result:', analysisResult);  // Added this log for debugging
-  
-  return analysisResult;
-}
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('No JSON object found in the AI response');
+  }
 
-function parseAnalysisStructure(structure: string): Record<string, string> {
-  const lines = structure.split('\n');
-  const result: Record<string, string> = {};
-  let currentPath: string[] = [];
+  const newNames = JSON.parse(jsonMatch[0]);
+  await applyNewNames(layerInfo, newNames);
 
-  lines.forEach(line => {
-    const trimmedLine = line.trim();
-    if (trimmedLine.startsWith('-')) {
-      const level = (line.length - line.trimLeft().length) / 2;
-      const name = trimmedLine.substring(1).trim().split(':')[0].trim();
-      
-      currentPath = currentPath.slice(0, level);
-      currentPath.push(name);
-      
-      const fullPath = currentPath.join(' > ');
-      result[fullPath] = name;
-    }
+  // Проверка применения всех имен
+  const unusedNames = Object.keys(newNames).filter(id => !checkNameApplied(layerInfo, id));
+  if (unusedNames.length > 0) {
+    console.warn(`Warning: Some names were not applied: ${unusedNames.join(', ')}`);
+    figma.ui.postMessage({ 
+      type: 'warning', 
+      message: `Some names were not applied. Check console for details.`
+    });
+  }
+
+  // Добавим дополнительную проверку и попытку применить оставшиеся имена
+  if (unusedNames.length > 0) {
+    console.log("Attempting to apply remaining names...");
+    await applyRemainingNames(layerInfo, newNames, unusedNames);
+  }
+
+  figma.ui.postMessage({ 
+    type: 'complete', 
+    message: 'Renaming complete',
+    context: content.replace(jsonMatch[0], '').trim()
   });
-
-  console.log('Parsed Analysis Structure:', result);  // Added this log for debugging
-  return result;
 }
 
-async function renameLayerRecursively(
-  layerInfo: LayerInfo, 
-  newNames: Record<string, string>, 
-  analysisNames: Record<string, string>, 
-  currentPath: string[] = []
-): Promise<number> {
-  let renamedCount = 0;
+async function applyNewNames(layerInfo: LayerInfo, newNames: Record<string, string>): Promise<void> {
   const node = await figma.getNodeByIdAsync(layerInfo.id);
   if (node) {
-    let newName = '';
-
-    // Попытка найти имя из анализа структуры
-    const fullPath = currentPath.join(' > ');
-    for (const [path, name] of Object.entries(analysisNames)) {
-      if (fullPath.endsWith(path)) {
-        newName = name;
-        break;
+    if (layerInfo.id in newNames) {
+      node.name = newNames[layerInfo.id];
+      console.log(`Renamed: ${layerInfo.name} -> ${newNames[layerInfo.id]}`);
+    } else {
+      // Если нет нового имени по ID, попробуем найти по старому имени
+      const newName = newNames[layerInfo.name] || newNames[`Layer_${layerInfo.id}`];
+      if (newName) {
+        node.name = newName;
+        console.log(`Renamed: ${layerInfo.name} -> ${newName}`);
+      } else {
+        console.log(`No new name for: ${layerInfo.name}, keeping original name`);
       }
     }
+  } else {
+    console.error(`Node not found for id: ${layerInfo.id}`);
+  }
 
-    // Если имя не найдено в анализе, используем имя от нейронки
-    if (!newName && layerInfo.id in newNames) {
-      newName = newNames[layerInfo.id];
-    }
+  for (const child of layerInfo.children) {
+    await applyNewNames(child, newNames);
+  }
+}
 
-    // Если имя найдено, применяем его
-    if (newName) {
-      node.name = newName;
-      renamedCount++;
-      console.log(`Renamed: ${layerInfo.name} -> ${newName}`);
+function checkNameApplied(layerInfo: LayerInfo, id: string): boolean {
+  if (layerInfo.id === id) return true;
+  return layerInfo.children.some(child => checkNameApplied(child, id));
+}
+
+async function renameLayersRecursively(layerInfo: LayerInfo, newNames: Record<string, string>): Promise<void> {
+  const node = await figma.getNodeByIdAsync(layerInfo.id);
+  if (node) {
+    if (layerInfo.id in newNames) {
+      node.name = newNames[layerInfo.id];
+      console.log(`Renamed: ${layerInfo.name} -> ${newNames[layerInfo.id]}`);
     } else {
       console.log(`No new name for: ${layerInfo.name}`);
     }
   }
 
-  // Рекурсивно переименовываем дочерние элементы
   for (const child of layerInfo.children) {
-    renamedCount += await renameLayerRecursively(
-      child, 
-      newNames, 
-      analysisNames, 
-      [...currentPath, child.name]
-    );
+    await renameLayersRecursively(child, newNames);
   }
-
-  return renamedCount;
 }
 
-function generateSimpleName(type: string, path: string[]): string {
-  const typePrefix = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
-  const pathSuffix = path.length > 0 ? path[path.length - 1] : '';
-  return `${typePrefix}${pathSuffix ? '_' + pathSuffix : ''}`;
-}
-
-async function simpleRename(layerInfo: LayerInfo, prefix: string = ''): Promise<number> {
-  let renamedCount = 0;
+async function simpleRename(layerInfo: LayerInfo, prefix: string = ''): Promise<void> {
   const node = await figma.getNodeByIdAsync(layerInfo.id);
   if (node) {
-    const oldName = node.name;
-    const newName = prefix ? `${prefix}-${renamedCount + 1}` : `${renamedCount + 1}`;
+    const newName = prefix ? `${prefix}` : 'Layer';
     node.name = newName;
-    renamedCount++;
-    console.log(`Renamed: ${oldName} -> ${newName}`);
+    console.log(`Renamed: ${layerInfo.name} -> ${newName}`);
   }
 
-  for (const child of layerInfo.children) {
-    const childPrefix = prefix ? `${prefix}-${renamedCount}` : `${renamedCount}`;
-    renamedCount += await simpleRename(child, childPrefix);
+  for (let i = 0; i < layerInfo.children.length; i++) {
+    const child = layerInfo.children[i];
+    const childPrefix = prefix ? `${prefix}_${i + 1}` : `${i + 1}`;
+    await simpleRename(child, childPrefix);
   }
-
-  return renamedCount;
 }
 
 function updateSelectionInfo() {
@@ -265,134 +240,31 @@ function updateSelectionInfo() {
 
 figma.on('selectionchange', updateSelectionInfo);
 
-figma.ui.onmessage = async (msg: { type: string; temperature?: number; context?: string; apiKey?: string; analysisModel?: string; renamingModel?: string }) => {
+figma.ui.onmessage = async (msg: { type: string; apiKey?: string; analysisModel?: string; }) => {
   console.log('Received message:', msg);
   if (msg.type === 'loadSettings') {
     const apiKey = await figma.clientStorage.getAsync('apiKey') || '';
     const analysisModel = await figma.clientStorage.getAsync('analysisModel') || '';
-    const renamingModel = await figma.clientStorage.getAsync('renamingModel') || '';
-    figma.ui.postMessage({ type: 'settingsLoaded', apiKey, analysisModel, renamingModel });
+    figma.ui.postMessage({ type: 'settingsLoaded', apiKey, analysisModel });
   } else if (msg.type === 'saveSettings') {
     OPENROUTER_API_KEY = msg.apiKey || '';
     ANALYSIS_MODEL = msg.analysisModel || '';
-    RENAMING_MODEL = msg.renamingModel || '';
     await figma.clientStorage.setAsync('apiKey', OPENROUTER_API_KEY);
     await figma.clientStorage.setAsync('analysisModel', ANALYSIS_MODEL);
-    await figma.clientStorage.setAsync('renamingModel', RENAMING_MODEL);
     console.log('Settings saved');
-  } else if (msg.type === 'start-analysis') {
-    try {
-      const screenshot = await captureScreenshot();
-      analysisResult = await analyzeScreenshot(screenshot);
-      figma.ui.postMessage({ 
-        type: 'context', 
-        structure: analysisResult.structure,
-        colorTheme: analysisResult.colorTheme,
-        screenshot: Array.from(screenshot)
-      });
-    } catch (error) {
-      console.error('Analysis error:', error);
-      figma.ui.postMessage({ type: 'error', message: error instanceof Error ? error.message : 'Unknown error occurred' });
-    }
   } else if (msg.type === 'start-renaming') {
-    const selection = figma.currentPage.selection;
-    if (selection.length === 0) {
-      figma.ui.postMessage({ type: 'error', message: 'No layers selected' });
-      return;
-    }
-
-    const layerInfos = selection.map(getLayerInfo);
-    const context = msg.context || '';
-    const temperature = msg.temperature || 0.7;
-
-    if (!analysisResult) {
-      figma.ui.postMessage({ type: 'error', message: 'Please analyze the screenshot first' });
-      return;
-    }
-
-    console.log('Analysis Result:', analysisResult);  // Added this log
-    const analysisNames = parseAnalysisStructure(analysisResult.structure);
-    console.log('Parsed analysis names:', analysisNames);
-
-    const renamingSystemMessage = `You are an AI assistant specialized in renaming Figma layers.
-Your task is to provide concise and descriptive names for each layer based on their context, hierarchy, and type.
-The layers have been pre-renamed with a simple numeric structure (e.g., 1-1-1, 1-1-2, 1-2, etc.).
-Use this structure to understand the hierarchy and provide appropriate names.
-Follow these guidelines:
-1. Use PascalCase for main components and camelCase for sub-components.
-2. Keep names short and descriptive, focusing on the purpose of the element.
-3. Use common UI terms (e.g., Header, Footer, NavBar, SearchBar).
-4. For repeated elements, use numbers or descriptive suffixes (e.g., "Feature1", "Feature2" or "SearchIcon", "NotificationIcon").
-5. Ensure names are unique within their parent context.
-6. Use the provided UI structure as a guide for naming, but improve upon it if necessary.
-
-The response should be a JSON object with layer IDs as keys and new names as values.
-Provide names for ALL layers in the input, without exception.
-Only respond with JSON and nothing else!!!`;
-
     try {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'X-Title': 'Figma AI Rename Layers Plugin',
-          'HTTP-Referer': 'https://www.figma.com/'
-        },
-        body: JSON.stringify({
-          model: RENAMING_MODEL,
-          messages: [
-            { role: 'system', content: renamingSystemMessage },
-            { role: 'user', content: `Context:\n${context}\n\nRename ALL of the following layers. Respond only with a JSON object containing names for EVERY layer:\n\n${JSON.stringify(layerInfos, null, 2)}` },
-          ],
-          temperature: temperature,
-          max_tokens: 8000,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('API Error:', errorData);
-        throw new Error(`API request failed: ${response.status} ${response.statusText}. ${errorData.error?.message || ''}`);
+      const selection = figma.currentPage.selection;
+      if (selection.length === 0) {
+        figma.ui.postMessage({ type: 'error', message: 'No layers selected' });
+        return;
       }
 
-      const data = await response.json();
-      console.log('API Response:', data);
-
-      if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-        throw new Error('Invalid API response structure: missing or empty choices array');
-      }
-
-      const aiResponse = data.choices[0].message?.content;
-      if (!aiResponse) {
-        throw new Error('Invalid API response structure: missing content in the first choice');
-      }
-
-      console.log('AI Response:', aiResponse);
-
-      let newNames;
-      try {
-        const cleanedResponse = aiResponse.replace(/```json\s*|\s*```/g, '').trim();
-        newNames = JSON.parse(cleanedResponse);
-      } catch (parseError) {
-        console.error('Failed to parse AI response:', parseError);
-        console.error('Raw AI response:', aiResponse);
-        throw new Error('Invalid response format from AI. Expected JSON object with layer names.');
-      }
-
-      if (typeof newNames !== 'object' || newNames === null || Object.keys(newNames).length === 0) {
-        throw new Error('Invalid or empty response from AI');
-      }
-
-      console.log('AI-generated names:', newNames);
-
-      let totalRenamedCount = 0;
-      for (const layerInfo of layerInfos) {
-        totalRenamedCount += await renameLayerRecursively(layerInfo, newNames, analysisNames);
-      }
-
-      console.log(`Total renamed layers: ${totalRenamedCount}`);
-      figma.ui.postMessage({ type: 'complete', renamedCount: totalRenamedCount });
+      const layerInfo = getLayerInfo(selection[0]);
+      await simpleRename(layerInfo);
+      
+      const screenshot = await captureScreenshot();
+      await analyzeAndRename(screenshot, layerInfo);
     } catch (error) {
       console.error('Renaming error:', error);
       figma.ui.postMessage({ 
@@ -400,32 +272,39 @@ Only respond with JSON and nothing else!!!`;
         message: error instanceof Error ? error.message : 'Unknown error occurred',
         details: error instanceof Error ? error.stack : ''
       });
-      // Add a delay before retrying
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      figma.ui.postMessage({ type: 'retryEnabled' });
     }
-  } else if (msg.type === 'start-simple-renaming') {
-    const selection = figma.currentPage.selection;
-    if (selection.length === 0) {
-      figma.ui.postMessage({ type: 'error', message: 'No layers selected' });
-      return;
-    }
-
-    console.log('Starting simple renaming...');
-    const layerInfos = selection.map(getLayerInfo);
-    let totalRenamedCount = 0;
-
-    for (let i = 0; i < layerInfos.length; i++) {
-      const renamedCount = await simpleRename(layerInfos[i], (i + 1).toString());
-      totalRenamedCount += renamedCount;
-      console.log(`Renamed ${renamedCount} layers in selection ${i + 1}`);
-    }
-
-    console.log(`Simple rename complete. Total renamed layers: ${totalRenamedCount}`);
-    figma.ui.postMessage({ type: 'complete', renamedCount: totalRenamedCount });
   } else if (msg.type === 'cancel') {
     figma.closePlugin();
   }
 };
 
 figma.on('run', updateSelectionInfo);
+
+async function applyRemainingNames(layerInfo: LayerInfo, newNames: Record<string, string>, unusedNames: string[]): Promise<void> {
+  const applyToNode = async (node: BaseNode) => {
+    if ('name' in node) {
+      for (const unusedName of unusedNames) {
+        if (node.name.toLowerCase().includes(unusedName.toLowerCase())) {
+          node.name = newNames[unusedName];
+          console.log(`Applied remaining name: ${node.name} -> ${newNames[unusedName]}`);
+          unusedNames.splice(unusedNames.indexOf(unusedName), 1);
+          break;
+        }
+      }
+    }
+  };
+
+  const traverseNodes = async (node: BaseNode) => {
+    await applyToNode(node);
+    if ('children' in node) {
+      for (const child of node.children) {
+        await traverseNodes(child);
+      }
+    }
+  };
+
+  const rootNode = await figma.getNodeByIdAsync(layerInfo.id);
+  if (rootNode) {
+    await traverseNodes(rootNode);
+  }
+}

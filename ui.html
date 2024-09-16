@@ -46,36 +46,8 @@
     color: red;
     margin-top: 10px;
   }
-  #status, #layerCount, #progress, #tokenInfo {
+  #status, #layerCount {
     margin-bottom: 10px;
-  }
-  #screenshot-container {
-    margin-top: 20px;
-    text-align: center;
-  }
-  #screenshot-thumbnail {
-    max-width: 100px;
-    max-height: 100px;
-    cursor: pointer;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-  }
-  #screenshot-fullsize {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0,0,0,0.8);
-    z-index: 1000;
-    justify-content: center;
-    align-items: center;
-  }
-  #screenshot-fullsize img {
-    max-width: 90%;
-    max-height: 90%;
-    object-fit: contain;
   }
   .tabs {
     display: flex;
@@ -111,43 +83,21 @@
   <h2>AI Rename Layers</h2>
   
   <div class="tabs">
-    <div class="tab active" data-tab="generate">Generate</div>
+    <div class="tab active" data-tab="rename">Rename</div>
     <div class="tab" data-tab="settings">Settings</div>
   </div>
   
-  <div id="generate" class="tab-content active">
-    <p id="status">Initializing...</p>
+  <div id="rename" class="tab-content active">
+    <p id="status">Ready to rename layers.</p>
     <p id="layerCount"></p>
-    <p id="progress"></p>
-    <p id="tokenInfo"></p>
     
-    <label for="structure">UI Structure:</label>
-    <textarea id="structure" rows="10" cols="50" readonly></textarea>
-    
-    <label for="colorTheme">Color Theme:</label>
-    <textarea id="colorTheme" rows="2" cols="50" readonly></textarea>
-    
-    <label for="context">Additional Context (optional):</label>
-    <textarea id="context" rows="4" cols="50" placeholder="Add any additional information here..."></textarea>
-    
-    <label for="temperature">Temperature:</label>
-    <input type="number" id="temperature" min="0" max="2" step="0.01" value="0.85">
-    
-    <div id="screenshot-container" style="display: none;">
-      <h3>Screenshot:</h3>
-      <img id="screenshot-thumbnail" alt="UI Screenshot" />
-    </div>
-    
-    <div id="screenshot-fullsize">
-      <img id="screenshot-large" alt="Full-size UI Screenshot" />
-    </div>
+    <label for="aiResponse">AI Analysis:</label>
+    <textarea id="aiResponse" rows="10" cols="50" readonly></textarea>
     
     <p id="error" style="color: red;"></p>
     
-    <button id="analyze">Analyze Screenshot</button>
-    <button id="start" disabled>Start Renaming</button>
+    <button id="start">Start Renaming</button>
     <button id="cancel">Cancel</button>
-    <button id="simpleRename">Simple Rename</button>
   </div>
   
   <div id="settings" class="tab-content">
@@ -158,9 +108,6 @@
     <label for="analysisModel">Analysis Model:</label>
     <input type="text" id="analysisModel" placeholder="Enter model for analysis">
     
-    <label for="renamingModel">Renaming Model:</label>
-    <input type="text" id="renamingModel" placeholder="Enter model for renaming">
-    
     <button id="saveSettings">Save Settings</button>
   </div>
 </div>
@@ -169,23 +116,19 @@
 let selectedLayers = 0;
 let totalLayers = 0;
 
-// Load saved settings
 function loadSettings() {
   parent.postMessage({ pluginMessage: { type: 'loadSettings' } }, '*');
 }
 
-// Save settings
 function saveSettings() {
   const apiKey = document.getElementById('apiKey').value;
   const analysisModel = document.getElementById('analysisModel').value;
-  const renamingModel = document.getElementById('renamingModel').value;
   
   parent.postMessage({ 
     pluginMessage: { 
       type: 'saveSettings', 
       apiKey, 
-      analysisModel, 
-      renamingModel 
+      analysisModel 
     } 
   }, '*');
   
@@ -193,7 +136,6 @@ function saveSettings() {
   alert('Settings saved successfully!');
 }
 
-// Tab switching logic
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', function() {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -208,52 +150,23 @@ window.onmessage = (event) => {
   if (message.type === 'settingsLoaded') {
     document.getElementById('apiKey').value = message.apiKey || '';
     document.getElementById('analysisModel').value = message.analysisModel || '';
-    document.getElementById('renamingModel').value = message.renamingModel || '';
     updateUI();
   } else if (message.type === 'error') {
     document.getElementById('error').textContent = `Error: ${message.message}`;
     if (message.details) {
       console.error('Error details:', message.details);
     }
-    document.getElementById('analyze').disabled = false;
     document.getElementById('start').disabled = false;
     document.getElementById('status').textContent = 'An error occurred';
-  } else if (message.type === 'retryEnabled') {
+  } else if (message.type === 'complete') {
+    document.getElementById('status').textContent = message.message;
+    document.getElementById('aiResponse').value = message.context;
     document.getElementById('start').disabled = false;
-  } else if (message.type === 'context') {
-    document.getElementById('structure').value = message.structure;
-    document.getElementById('colorTheme').value = message.colorTheme;
-    document.getElementById('start').disabled = false;
-    document.getElementById('analyze').disabled = true;
-    document.getElementById('status').textContent = 'Analysis complete. Ready to rename layers.';
-    
-    // Display the screenshot
-    if (message.screenshot) {
-      const screenshotContainer = document.getElementById('screenshot-container');
-      const screenshotThumbnail = document.getElementById('screenshot-thumbnail');
-      const screenshotLarge = document.getElementById('screenshot-large');
-      if (screenshotThumbnail && screenshotLarge) {
-        const uint8Array = new Uint8Array(message.screenshot);
-        const blob = new Blob([uint8Array], { type: 'image/png' });
-        const url = URL.createObjectURL(blob);
-        screenshotThumbnail.src = url;
-        screenshotLarge.src = url;
-        screenshotContainer.style.display = 'block';
-      }
-    }
-  } else if (message.type === 'tokenInfo') {
-    document.getElementById('tokenInfo').textContent = `Input tokens: ${message.inputTokens}, Output tokens: ${message.outputTokens}, Estimated cost: $${message.estimatedCost}`;
+    document.getElementById('error').textContent = '';
   } else if (message.type === 'selectionUpdate') {
     selectedLayers = message.selectedCount;
     totalLayers = message.totalCount;
     updateUI();
-  } else if (message.type === 'progress') {
-    document.getElementById('progress').textContent = `Progress: ${message.current}/${message.total}`;
-  } else if (message.type === 'complete') {
-    document.getElementById('status').textContent = `Renaming complete! Renamed ${message.renamedCount} layers.`;
-    document.getElementById('progress').textContent = '';
-    document.getElementById('start').disabled = false;
-    document.getElementById('error').textContent = '';
   }
 };
 
@@ -265,45 +178,21 @@ function updateUI() {
     layerCountElement.textContent = `Selected layers: ${selectedLayers} (Total including sublayers: ${totalLayers})`;
   }
   const settingsComplete = checkSettings();
-  document.getElementById('analyze').disabled = selectedLayers === 0 || !settingsComplete;
-  document.getElementById('start').disabled = true;
+  document.getElementById('start').disabled = selectedLayers === 0 || !settingsComplete;
   document.getElementById('status').textContent = selectedLayers === 0 ? 'No layers selected.' : 
-    (!settingsComplete ? 'Please enter API key and model names in settings.' : 'Ready to analyze screenshot.');
-  document.getElementById('progress').textContent = '';
+    (!settingsComplete ? 'Please enter API key and model name in settings.' : 'Ready to rename layers.');
   document.getElementById('error').textContent = '';
-  document.getElementById('tokenInfo').textContent = '';
-  document.getElementById('simpleRename').disabled = selectedLayers === 0;
+  document.getElementById('aiResponse').value = '';
 }
 
 function checkSettings() {
   const apiKey = document.getElementById('apiKey').value;
   const analysisModel = document.getElementById('analysisModel').value;
-  const renamingModel = document.getElementById('renamingModel').value;
-  return apiKey !== '' && analysisModel !== '' && renamingModel !== '';
+  return apiKey !== '' && analysisModel !== '';
 }
 
-document.getElementById('context').addEventListener('input', function() {
-  const isEmpty = this.value.trim() === '';
-  document.getElementById('analyze').disabled = !isEmpty && selectedLayers > 0;
-  document.getElementById('start').disabled = isEmpty;
-});
-
-document.getElementById('analyze').onclick = () => {
-  parent.postMessage({ pluginMessage: { type: 'start-analysis' } }, '*');
-  document.getElementById('status').textContent = 'Analyzing screenshot...';
-  document.getElementById('analyze').disabled = true;
-  document.getElementById('error').textContent = '';
-};
-
 document.getElementById('start').onclick = () => {
-  const temperature = parseFloat(document.getElementById('temperature').value);
-  const structure = document.getElementById('structure').value;
-  const colorTheme = document.getElementById('colorTheme').value;
-  const additionalContext = document.getElementById('context').value;
-  
-  const fullContext = `UI Structure:\n${structure}\n\nColor Theme:\n${colorTheme}\n\nAdditional Context:\n${additionalContext}`;
-  
-  parent.postMessage({ pluginMessage: { type: 'start-renaming', temperature, context: fullContext } }, '*');
+  parent.postMessage({ pluginMessage: { type: 'start-renaming' } }, '*');
   document.getElementById('status').textContent = 'Renaming layers...';
   document.getElementById('start').disabled = true;
   document.getElementById('error').textContent = '';
@@ -315,25 +204,7 @@ document.getElementById('cancel').onclick = () => {
 
 document.getElementById('saveSettings').onclick = saveSettings;
 
-// Screenshot handling
-document.getElementById('screenshot-thumbnail').addEventListener('click', function() {
-  document.getElementById('screenshot-fullsize').style.display = 'flex';
-});
-
-document.getElementById('screenshot-fullsize').addEventListener('click', function() {
-  this.style.display = 'none';
-});
-
-// Load settings on startup
 loadSettings();
 
-// Request initial selection info
 parent.postMessage({ pluginMessage: { type: 'requestSelection' } }, '*');
-
-document.getElementById('simpleRename').onclick = () => {
-  parent.postMessage({ pluginMessage: { type: 'start-simple-renaming' } }, '*');
-  document.getElementById('status').textContent = 'Performing simple renaming...';
-  document.getElementById('simpleRename').disabled = true;
-  document.getElementById('error').textContent = '';
-};
 </script>
