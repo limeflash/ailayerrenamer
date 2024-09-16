@@ -105,8 +105,11 @@
     <input type="text" id="apiKey" placeholder="Enter your OpenRouter API key">
     <p class="info">You need an OpenRouter API key. Get it <a href="https://openrouter.ai/keys" target="_blank">here</a>.</p>
     
-    <label for="analysisModel">Analysis Model:</label>
-    <input type="text" id="analysisModel" placeholder="Enter model for analysis">
+    <label for="screenshotAnalysisModel">Screenshot Analysis Model:</label>
+    <input type="text" id="screenshotAnalysisModel" placeholder="Enter model for screenshot analysis">
+    
+    <label for="layerNamingModel">Layer Naming Model:</label>
+    <input type="text" id="layerNamingModel" placeholder="Enter model for layer naming">
     
     <button id="saveSettings">Save Settings</button>
   </div>
@@ -122,13 +125,15 @@ function loadSettings() {
 
 function saveSettings() {
   const apiKey = document.getElementById('apiKey').value;
-  const analysisModel = document.getElementById('analysisModel').value;
+  const screenshotAnalysisModel = document.getElementById('screenshotAnalysisModel').value;
+  const layerNamingModel = document.getElementById('layerNamingModel').value;
   
   parent.postMessage({ 
     pluginMessage: { 
       type: 'saveSettings', 
       apiKey, 
-      analysisModel 
+      screenshotAnalysisModel,
+      layerNamingModel
     } 
   }, '*');
   
@@ -149,7 +154,8 @@ window.onmessage = (event) => {
   const message = event.data.pluginMessage;
   if (message.type === 'settingsLoaded') {
     document.getElementById('apiKey').value = message.apiKey || '';
-    document.getElementById('analysisModel').value = message.analysisModel || '';
+    document.getElementById('screenshotAnalysisModel').value = message.screenshotAnalysisModel || '';
+    document.getElementById('layerNamingModel').value = message.layerNamingModel || '';
     updateUI();
   } else if (message.type === 'error') {
     document.getElementById('error').textContent = `Error: ${message.message}`;
@@ -180,15 +186,16 @@ function updateUI() {
   const settingsComplete = checkSettings();
   document.getElementById('start').disabled = selectedLayers === 0 || !settingsComplete;
   document.getElementById('status').textContent = selectedLayers === 0 ? 'No layers selected.' : 
-    (!settingsComplete ? 'Please enter API key and model name in settings.' : 'Ready to rename layers.');
+    (!settingsComplete ? 'Please enter API key and model names in settings.' : 'Ready to rename layers.');
   document.getElementById('error').textContent = '';
   document.getElementById('aiResponse').value = '';
 }
 
 function checkSettings() {
   const apiKey = document.getElementById('apiKey').value;
-  const analysisModel = document.getElementById('analysisModel').value;
-  return apiKey !== '' && analysisModel !== '';
+  const screenshotAnalysisModel = document.getElementById('screenshotAnalysisModel').value;
+  const layerNamingModel = document.getElementById('layerNamingModel').value;
+  return apiKey !== '' && screenshotAnalysisModel !== '' && layerNamingModel !== '';
 }
 
 document.getElementById('start').onclick = () => {

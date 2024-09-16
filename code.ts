@@ -1,5 +1,6 @@
 let OPENROUTER_API_KEY = '';
-let ANALYSIS_MODEL = '';
+let SCREENSHOT_ANALYSIS_MODEL = '';
+let LAYER_NAMING_MODEL = '';
 
 function logWithoutSensitiveData(data: any) {
   const sanitized = JSON.parse(JSON.stringify(data));
@@ -16,15 +17,21 @@ interface LayerInfo {
   children: LayerInfo[];
 }
 
-const systemMessage = `You are an AI assistant specialized in analyzing UI screenshots and renaming layers. Your task is to provide a brief, focused context of the UI in the image and suggest appropriate names for the layers. Follow these guidelines:
+const screenshotAnalysisMessage = `You are an AI assistant specialized in analyzing UI screenshots. Your task is to provide a brief, focused context of the UI in the image. Follow these guidelines:
 
 1. Identify the type of application or website.
 2. Describe the main purpose or function of the visible UI.
 3. List the key UI elements present.
-4. Suggest names for the layers based on their function and hierarchy.
-5. Use clear, descriptive names without underscores or dashes.
 
-Provide the essential context in 3-5 concise sentences, followed by a JSON object containing layer IDs as keys and suggested names as values.`;
+Provide the essential context in 3-5 concise sentences.`;
+
+const layerNamingMessage = `You are an AI assistant specialized in renaming layers based on UI analysis. Your task is to suggest appropriate names for the layers based on the provided UI analysis and layer structure. Follow these guidelines:
+
+1. Use the UI analysis to understand the context and purpose of the interface.
+2. Suggest names for the layers based on their function and hierarchy.
+3. Use clear, descriptive names without underscores or dashes.
+
+Provide a JSON object containing layer IDs as keys and suggested names as values.`;
 
 figma.showUI(__html__, { width: 450, height: 550 });
 
@@ -93,11 +100,8 @@ async function captureScreenshot(): Promise<Uint8Array> {
   }
 }
 
-async function analyzeAndRename(screenshot: Uint8Array, layerInfo: LayerInfo): Promise<void> {
+async function analyzeScreenshot(screenshot: Uint8Array): Promise<string> {
   const base64Image = uint8ArrayToBase64(screenshot);
-
-  console.log('OPENROUTER_API_KEY length:', OPENROUTER_API_KEY.length);
-  console.log('ANALYSIS_MODEL:', ANALYSIS_MODEL);
 
   const requestData = {
     method: 'POST',
@@ -108,14 +112,46 @@ async function analyzeAndRename(screenshot: Uint8Array, layerInfo: LayerInfo): P
       'HTTP-Referer': 'https://www.figma.com/'
     },
     body: JSON.stringify({
-      model: ANALYSIS_MODEL,
+      model: SCREENSHOT_ANALYSIS_MODEL,
       messages: [
-        { role: 'system', content: systemMessage },
+        { role: 'system', content: screenshotAnalysisMessage },
         { role: 'user', content: [
-          { type: 'text', text: 'Analyze this UI screenshot and suggest names for the layers. Here is the current layer structure:' },
-          { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } },
-          { type: 'text', text: JSON.stringify(layerInfo, null, 2) }
+          { type: 'text', text: 'Analyze this UI screenshot:' },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }
         ]},
+      ],
+      max_tokens: 1000,
+    }),
+  };
+
+  logWithoutSensitiveData(requestData);
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', requestData);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('API Error response:', errorText);
+    throw new Error(`API request failed: ${response.status} ${response.statusText}\n${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+async function generateLayerNames(uiAnalysis: string, layerInfo: LayerInfo): Promise<Record<string, string>> {
+  const requestData = {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'X-Title': 'Figma AI Rename Layers Plugin',
+      'HTTP-Referer': 'https://www.figma.com/'
+    },
+    body: JSON.stringify({
+      model: LAYER_NAMING_MODEL,
+      messages: [
+        { role: 'system', content: layerNamingMessage },
+        { role: 'user', content: `UI Analysis: ${uiAnalysis}\n\nLayer Structure: ${JSON.stringify(layerInfo, null, 2)}` },
       ],
       max_tokens: 2000,
     }),
@@ -133,8 +169,8 @@ async function analyzeAndRename(screenshot: Uint8Array, layerInfo: LayerInfo): P
 
   const data = await response.json();
   const content = data.choices[0].message.content;
-  
-  console.log("AI Response:", content); // Log the full response for debugging
+
+  console.log("AI Response:", content);
 
   let newNames: Record<string, string> = {};
 
@@ -159,20 +195,16 @@ async function analyzeAndRename(screenshot: Uint8Array, layerInfo: LayerInfo): P
     }
   }
 
-  // If still no names, use the names from the warning message
-  if (Object.keys(newNames).length === 0) {
-    const warningNames = [
-      "timeStatusBar", "searchNumberInput", "improveButton", "supportButton", 
-      "profileBanner", "mainMenuCallerId", "mainMenuAdditionalFeatures", 
-      "mainMenuNotes", "mainMenuAppIcons", "mainMenuCommonContacts", 
-      "mainMenuSearchHistory", "contactsSection", "bottomNavigationBar"
-    ];
-    warningNames.forEach((name, index) => {
-      newNames[`Layer_${index + 1}`] = name;
-    });
-  }
+  console.log("Extracted names:", newNames);
 
-  console.log("Extracted names:", newNames); // Log the extracted names
+  return newNames;
+}
+
+async function analyzeAndRename(screenshot: Uint8Array, layerInfo: LayerInfo): Promise<void> {
+  const uiAnalysis = await analyzeScreenshot(screenshot);
+  console.log("UI Analysis:", uiAnalysis);
+
+  const newNames = await generateLayerNames(uiAnalysis, layerInfo);
 
   await applyNewNames(layerInfo, newNames);
 
@@ -195,7 +227,7 @@ async function analyzeAndRename(screenshot: Uint8Array, layerInfo: LayerInfo): P
   figma.ui.postMessage({ 
     type: 'complete', 
     message: 'Renaming complete',
-    context: content.replace(jsonMatch[0], '').trim()
+    context: uiAnalysis
   });
 }
 
@@ -274,17 +306,20 @@ function updateSelectionInfo() {
 
 figma.on('selectionchange', updateSelectionInfo);
 
-figma.ui.onmessage = async (msg: { type: string; apiKey?: string; analysisModel?: string; }) => {
+figma.ui.onmessage = async (msg: { type: string; apiKey?: string; screenshotAnalysisModel?: string; layerNamingModel?: string; }) => {
   console.log('Received message:', msg);
   if (msg.type === 'loadSettings') {
     const apiKey = await figma.clientStorage.getAsync('apiKey') || '';
-    const analysisModel = await figma.clientStorage.getAsync('analysisModel') || '';
-    figma.ui.postMessage({ type: 'settingsLoaded', apiKey, analysisModel });
+    const screenshotAnalysisModel = await figma.clientStorage.getAsync('screenshotAnalysisModel') || '';
+    const layerNamingModel = await figma.clientStorage.getAsync('layerNamingModel') || '';
+    figma.ui.postMessage({ type: 'settingsLoaded', apiKey, screenshotAnalysisModel, layerNamingModel });
   } else if (msg.type === 'saveSettings') {
     OPENROUTER_API_KEY = msg.apiKey || '';
-    ANALYSIS_MODEL = msg.analysisModel || '';
+    SCREENSHOT_ANALYSIS_MODEL = msg.screenshotAnalysisModel || '';
+    LAYER_NAMING_MODEL = msg.layerNamingModel || '';
     await figma.clientStorage.setAsync('apiKey', OPENROUTER_API_KEY);
-    await figma.clientStorage.setAsync('analysisModel', ANALYSIS_MODEL);
+    await figma.clientStorage.setAsync('screenshotAnalysisModel', SCREENSHOT_ANALYSIS_MODEL);
+    await figma.clientStorage.setAsync('layerNamingModel', LAYER_NAMING_MODEL);
     console.log('Settings saved');
   } else if (msg.type === 'start-renaming') {
     try {
