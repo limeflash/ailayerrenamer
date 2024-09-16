@@ -313,14 +313,19 @@ figma.ui.onmessage = async (msg: { type: string; apiKey?: string; screenshotAnal
     const screenshotAnalysisModel = await figma.clientStorage.getAsync('screenshotAnalysisModel') || '';
     const layerNamingModel = await figma.clientStorage.getAsync('layerNamingModel') || '';
     figma.ui.postMessage({ type: 'settingsLoaded', apiKey, screenshotAnalysisModel, layerNamingModel });
-  } else if (msg.type === 'saveSettings') {
+  } else if (msg.type === 'useLoadedSettings' || msg.type === 'saveSettings') {
     OPENROUTER_API_KEY = msg.apiKey || '';
     SCREENSHOT_ANALYSIS_MODEL = msg.screenshotAnalysisModel || '';
     LAYER_NAMING_MODEL = msg.layerNamingModel || '';
-    await figma.clientStorage.setAsync('apiKey', OPENROUTER_API_KEY);
-    await figma.clientStorage.setAsync('screenshotAnalysisModel', SCREENSHOT_ANALYSIS_MODEL);
-    await figma.clientStorage.setAsync('layerNamingModel', LAYER_NAMING_MODEL);
-    console.log('Settings saved');
+    
+    if (msg.type === 'saveSettings') {
+      await figma.clientStorage.setAsync('apiKey', OPENROUTER_API_KEY);
+      await figma.clientStorage.setAsync('screenshotAnalysisModel', SCREENSHOT_ANALYSIS_MODEL);
+      await figma.clientStorage.setAsync('layerNamingModel', LAYER_NAMING_MODEL);
+      console.log('Settings saved');
+    } else {
+      console.log('Using loaded settings');
+    }
   } else if (msg.type === 'start-renaming') {
     try {
       const selection = figma.currentPage.selection;

@@ -1,81 +1,200 @@
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
   body {
-    font-family: sans-serif;
-    margin: 20px;
-    background-color: #f0f0f0;
-  }
-  h2 {
-    margin-top: 0;
-    color: #333;
-  }
-  .container {
-    background-color: white;
+    font-family: 'Inter', sans-serif;
+    margin: 0;
     padding: 20px;
+    background-color: #f9fafb;
+    color: #111827;
+  }
+
+  .container {
+    max-width: 400px;
+    margin: 0 auto;
+    background-color: #ffffff;
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    padding: 24px;
   }
-  label {
-    display: block;
-    margin-top: 10px;
-    color: #555;
+
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
   }
-  textarea, input {
-    width: 100%;
-    padding: 8px;
-    margin-top: 5px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    box-sizing: border-box;
-  }
-  button {
-    margin-top: 10px;
-    padding: 8px 16px;
-    background-color: #18A0FB;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  button:disabled {
-    background-color: #ccc;
-  }
-  #cancel {
-    background-color: #FF4D4D;
-  }
-  #error {
-    color: red;
-    margin-top: 10px;
-  }
-  #status, #layerCount {
-    margin-bottom: 10px;
-  }
+
   .tabs {
     display: flex;
-    margin-bottom: 20px;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 1rem;
   }
+
   .tab {
-    padding: 10px 20px;
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+    color: #6b7280;
     cursor: pointer;
-    background-color: #f0f0f0;
-    border: 1px solid #ddd;
-    border-bottom: none;
+    border-bottom: 2px solid transparent;
   }
+
   .tab.active {
-    background-color: white;
+    color: #3b82f6;
+    border-bottom-color: #3b82f6;
   }
+
   .tab-content {
     display: none;
   }
+
   .tab-content.active {
     display: block;
   }
-  .info {
-    font-size: 12px;
-    color: #666;
-    margin-top: 5px;
+
+  label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: #374151;
   }
+
+  input {
+    width: 100%;
+    padding: 0.375rem 0.5rem; /* Reduced padding */
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    transition: border-color 0.15s ease-in-out;
+    height: 2rem; /* Reduced height */
+  }
+
+  textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    transition: border-color 0.15s ease-in-out;
+    min-height: 100px;
+    resize: vertical;
+  }
+
+  textarea::placeholder {
+    color: #9ca3af;
+    font-style: italic;
+  }
+
+  input:focus, textarea:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.375rem;
+    color: #ffffff;
+    background-color: #3b82f6;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+  }
+
+  button:hover {
+    background-color: #2563eb;
+  }
+
+  button:disabled {
+    background-color: #9ca3af;
+    cursor: not-allowed;
+  }
+
+  #cancel {
+    background-color: #ef4444;
+  }
+
+  #cancel:hover {
+    background-color: #dc2626;
+  }
+
+  .info {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+  }
+
+  #error {
+    color: #ef4444;
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+  }
+
+  #status, #layerCount {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-bottom: 0.5rem;
+  }
+
+  .footer {
+    margin-top: 1.5rem;
+    font-size: 0.75rem;
+    color: #6b7280;
+    text-align: center;
+  }
+
   a {
-    color: #18A0FB;
+    color: #3b82f6;
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+  }
+
+  .hyper-text {
+    --text-color: #6b7280;
+    --bg-color: #f3f4f6;
+    font-family: monospace;
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--text-color);
+    position: relative;
+    user-select: none;
+    background-color: var(--bg-color);
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    overflow: hidden;
+    white-space: pre-wrap; /* Changed from nowrap to pre-wrap */
+    word-break: break-word; /* Added to ensure long words don't overflow */
+    min-height: 1.5em; /* Added to ensure there's always space for the cursor */
+  }
+
+  .hyper-text::after {
+    content: "|";
+    position: absolute;
+    bottom: 0.25rem; /* Changed from top to bottom */
+    right: 0.25rem; /* Added some right padding */
+    color: var(--text-color);
+    animation: blink 1s infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 0; }
+    50% { opacity: 1; }
+  }
+
+  #settings .input-group {
+    margin-bottom: 0.75rem; /* Reduced margin */
+  }
+
+  #settings #saveSettings {
+    margin-top: 1rem; /* Reduced margin */
   }
 </style>
 
@@ -89,29 +208,39 @@
   
   <div id="rename" class="tab-content active">
     <p id="status">Ready to rename layers.</p>
-    <p id="layerCount"></p>
+    <div id="layerCount" class="hyper-text" data-text=""></div>
     
     <label for="aiResponse">AI Analysis:</label>
-    <textarea id="aiResponse" rows="10" cols="50" readonly></textarea>
+    <textarea id="aiResponse" rows="6" readonly placeholder="The AI analysis of the selected layers will appear here after renaming. It will describe the type of UI, its main purpose, and key elements present."></textarea>
     
-    <p id="error" style="color: red;"></p>
+    <p id="error"></p>
     
     <button id="start">Start Renaming</button>
     <button id="cancel">Cancel</button>
   </div>
   
   <div id="settings" class="tab-content">
-    <label for="apiKey">OpenRouter API Key:</label>
-    <input type="text" id="apiKey" placeholder="Enter your OpenRouter API key">
-    <p class="info">You need an OpenRouter API key. Get it <a href="https://openrouter.ai/keys" target="_blank">here</a>.</p>
+    <div class="input-group">
+      <label for="apiKey">OpenRouter API Key:</label>
+      <input type="password" id="apiKey" placeholder="Enter your OpenRouter API key">
+      <p class="info">You need an OpenRouter API key. Get it <a href="https://openrouter.ai/keys" target="_blank">here</a>.</p>
+    </div>
     
-    <label for="screenshotAnalysisModel">Screenshot Analysis Model:</label>
-    <input type="text" id="screenshotAnalysisModel" placeholder="Enter model for screenshot analysis">
+    <div class="input-group">
+      <label for="screenshotAnalysisModel">Screenshot Analysis Model:</label>
+      <input type="text" id="screenshotAnalysisModel" placeholder="Enter model for screenshot analysis">
+    </div>
     
-    <label for="layerNamingModel">Layer Naming Model:</label>
-    <input type="text" id="layerNamingModel" placeholder="Enter model for layer naming">
+    <div class="input-group">
+      <label for="layerNamingModel">Layer Naming Model:</label>
+      <input type="text" id="layerNamingModel" placeholder="Enter model for layer naming">
+    </div>
     
     <button id="saveSettings">Save Settings</button>
+  </div>
+  
+  <div class="footer">
+    You can make a donation to support the development of this plugin. Ethereum: 0x489B552990876E3151f1AC08c1C6EcbC34b15289
   </div>
 </div>
 
@@ -156,6 +285,17 @@ window.onmessage = (event) => {
     document.getElementById('apiKey').value = message.apiKey || '';
     document.getElementById('screenshotAnalysisModel').value = message.screenshotAnalysisModel || '';
     document.getElementById('layerNamingModel').value = message.layerNamingModel || '';
+    
+    // Automatically use the loaded settings
+    parent.postMessage({ 
+      pluginMessage: { 
+        type: 'useLoadedSettings', 
+        apiKey: message.apiKey,
+        screenshotAnalysisModel: message.screenshotAnalysisModel,
+        layerNamingModel: message.layerNamingModel
+      } 
+    }, '*');
+    
     updateUI();
   } else if (message.type === 'error') {
     document.getElementById('error').textContent = `Error: ${message.message}`;
@@ -181,7 +321,8 @@ function updateUI() {
   if (selectedLayers === 0) {
     layerCountElement.textContent = 'No layers selected.';
   } else {
-    layerCountElement.textContent = `Selected layers: ${selectedLayers} (Total including sublayers: ${totalLayers})`;
+    const text = `Selected layers: ${selectedLayers} (Total including sublayers: ${totalLayers})`;
+    animateHyperText(layerCountElement, text);
   }
   const settingsComplete = checkSettings();
   document.getElementById('start').disabled = selectedLayers === 0 || !settingsComplete;
@@ -189,6 +330,23 @@ function updateUI() {
     (!settingsComplete ? 'Please enter API key and model names in settings.' : 'Ready to rename layers.');
   document.getElementById('error').textContent = '';
   document.getElementById('aiResponse').value = '';
+  document.getElementById('aiResponse').placeholder = "The AI analysis of the selected layers will appear here after renaming. It will describe the type of UI, its main purpose, and key elements present.";
+}
+
+function animateHyperText(element, text) {
+  element.textContent = '';
+  let index = 0;
+  
+  function addNextChar() {
+    if (index < text.length) {
+      element.textContent = text.slice(0, index + 1);
+      index++;
+      // Decrease the timeout value to speed up the animation
+      setTimeout(addNextChar, 10); // Changed from 50 to 10 milliseconds
+    }
+  }
+  
+  addNextChar();
 }
 
 function checkSettings() {
