@@ -189,32 +189,31 @@ async function renameLayerRecursively(
   if (node) {
     let newName = '';
 
-    // Try to find a matching name from the analysis structure
+    // Попытка найти имя из анализа структуры
+    const fullPath = currentPath.join(' > ');
     for (const [path, name] of Object.entries(analysisNames)) {
-      if (currentPath.join(' > ').endsWith(path)) {
+      if (fullPath.endsWith(path)) {
         newName = name;
         break;
       }
     }
 
-    // If no matching name found in analysis, use the AI-generated name
+    // Если имя не найдено в анализе, используем имя от нейронки
     if (!newName && layerInfo.id in newNames) {
       newName = newNames[layerInfo.id];
     }
 
-    // If still no name, use a simple generated name
-    if (!newName) {
-      newName = generateSimpleName(layerInfo.type, currentPath);
-    }
-
-    // Apply the new name
+    // Если имя найдено, применяем его
     if (newName) {
       node.name = newName;
       renamedCount++;
+      console.log(`Renamed: ${layerInfo.name} -> ${newName}`);
+    } else {
+      console.log(`No new name for: ${layerInfo.name}`);
     }
   }
 
-  // Recursively rename child layers
+  // Рекурсивно переименовываем дочерние элементы
   for (const child of layerInfo.children) {
     renamedCount += await renameLayerRecursively(
       child, 
@@ -317,16 +316,15 @@ figma.ui.onmessage = async (msg: { type: string; temperature?: number; context?:
 
     const renamingSystemMessage = `You are an AI assistant specialized in renaming Figma layers.
 Your task is to provide concise and descriptive names for each layer based on their context, hierarchy, and type.
+The layers have been pre-renamed with a simple numeric structure (e.g., 1-1-1, 1-1-2, 1-2, etc.).
+Use this structure to understand the hierarchy and provide appropriate names.
 Follow these guidelines:
 1. Use PascalCase for main components and camelCase for sub-components.
 2. Keep names short and descriptive, focusing on the purpose of the element.
-3. Avoid using generic terms like "Rectangle" or "Vector" unless absolutely necessary.
-4. For repeated elements, use numbers or descriptive suffixes (e.g., "Card1", "Card2" or "HeaderCard", "ContentCard").
-5. Use common UI terms (e.g., "Header", "Footer", "NavBar", "SearchBar").
-6. Include the element type only if it adds clarity (e.g., "ProfileIcon" instead of just "Profile").
-7. For groups or frames, focus on their overall purpose rather than listing contents.
-8. Ensure names are unique within their parent context.
-9. Use the provided UI structure as a guide for naming, but feel free to improve upon it if necessary.
+3. Use common UI terms (e.g., Header, Footer, NavBar, SearchBar).
+4. For repeated elements, use numbers or descriptive suffixes (e.g., "Feature1", "Feature2" or "SearchIcon", "NotificationIcon").
+5. Ensure names are unique within their parent context.
+6. Use the provided UI structure as a guide for naming, but improve upon it if necessary.
 
 The response should be a JSON object with layer IDs as keys and new names as values.
 Provide names for ALL layers in the input, without exception.
