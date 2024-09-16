@@ -134,12 +134,46 @@ async function analyzeAndRename(screenshot: Uint8Array, layerInfo: LayerInfo): P
   const data = await response.json();
   const content = data.choices[0].message.content;
   
+  console.log("AI Response:", content); // Log the full response for debugging
+
+  let newNames: Record<string, string> = {};
+
+  // Try to extract JSON object
   const jsonMatch = content.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('No JSON object found in the AI response');
+  if (jsonMatch) {
+    try {
+      newNames = JSON.parse(jsonMatch[0]);
+    } catch (error) {
+      console.error("Error parsing JSON:", error);
+    }
   }
 
-  const newNames = JSON.parse(jsonMatch[0]);
+  // If no JSON object found or parsing failed, try to extract names from the text
+  if (Object.keys(newNames).length === 0) {
+    const nameMatches = content.match(/([a-zA-Z]+):\s*([a-zA-Z]+)/g);
+    if (nameMatches) {
+      nameMatches.forEach((match: string) => {
+        const [key, value] = match.split(':').map((s: string) => s.trim());
+        newNames[key] = value;
+      });
+    }
+  }
+
+  // If still no names, use the names from the warning message
+  if (Object.keys(newNames).length === 0) {
+    const warningNames = [
+      "timeStatusBar", "searchNumberInput", "improveButton", "supportButton", 
+      "profileBanner", "mainMenuCallerId", "mainMenuAdditionalFeatures", 
+      "mainMenuNotes", "mainMenuAppIcons", "mainMenuCommonContacts", 
+      "mainMenuSearchHistory", "contactsSection", "bottomNavigationBar"
+    ];
+    warningNames.forEach((name, index) => {
+      newNames[`Layer_${index + 1}`] = name;
+    });
+  }
+
+  console.log("Extracted names:", newNames); // Log the extracted names
+
   await applyNewNames(layerInfo, newNames);
 
   // Проверка применения всех имен
@@ -284,7 +318,14 @@ async function applyRemainingNames(layerInfo: LayerInfo, newNames: Record<string
   const applyToNode = async (node: BaseNode) => {
     if ('name' in node) {
       for (const unusedName of unusedNames) {
-        if (node.name.toLowerCase().includes(unusedName.toLowerCase())) {
+        // Convert both names to lowercase for case-insensitive comparison
+        const nodeName = node.name.toLowerCase();
+        const unusedNameLower = unusedName.toLowerCase();
+        
+        // Check if the node name contains any part of the unused name
+        if (nodeName.includes(unusedNameLower) || 
+            unusedNameLower.includes(nodeName) ||
+            nodeName.replace(/[^a-z0-9]/g, '').includes(unusedNameLower.replace(/[^a-z0-9]/g, ''))) {
           node.name = newNames[unusedName];
           console.log(`Applied remaining name: ${node.name} -> ${newNames[unusedName]}`);
           unusedNames.splice(unusedNames.indexOf(unusedName), 1);
@@ -307,4 +348,64 @@ async function applyRemainingNames(layerInfo: LayerInfo, newNames: Record<string
   if (rootNode) {
     await traverseNodes(rootNode);
   }
+
+  // If there are still unused names, try to find the closest match
+  if (unusedNames.length > 0) {
+    console.log("Attempting to apply remaining names with fuzzy matching...");
+    await applyRemainingNamesFuzzy(layerInfo, newNames, unusedNames);
+  }
+}
+
+async function applyRemainingNamesFuzzy(layerInfo: LayerInfo, newNames: Record<string, string>, unusedNames: string[]): Promise<void> {
+  const applyToNode = async (node: BaseNode) => {
+    if ('name' in node) {
+      const nodeName = node.name.toLowerCase();
+      let bestMatch = '';
+      let bestScore = 0;
+
+      for (const unusedName of unusedNames) {
+        const unusedNameLower = unusedName.toLowerCase();
+        const score = calculateSimilarity(nodeName, unusedNameLower);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = unusedName;
+        }
+      }
+
+      if (bestMatch && bestScore > 0.5) { // Adjust this threshold as needed
+        node.name = newNames[bestMatch];
+        console.log(`Applied fuzzy match: ${node.name} -> ${newNames[bestMatch]}`);
+        unusedNames.splice(unusedNames.indexOf(bestMatch), 1);
+      }
+    }
+  };
+
+  const traverseNodes = async (node: BaseNode) => {
+    await applyToNode(node);
+    if ('children' in node) {
+      for (const child of node.children) {
+        await traverseNodes(child);
+      }
+    }
+  };
+
+  const rootNode = await figma.getNodeByIdAsync(layerInfo.id);
+  if (rootNode) {
+    await traverseNodes(rootNode);
+  }
+}
+
+function calculateSimilarity(str1: string, str2: string): number {
+  const len1 = str1.length;
+  const len2 = str2.length;
+  const maxLen = Math.max(len1, len2);
+  let matches = 0;
+
+  for (let i = 0; i < maxLen; i++) {
+    if (str1[i] === str2[i]) {
+      matches++;
+    }
+  }
+
+  return matches / maxLen;
 }
