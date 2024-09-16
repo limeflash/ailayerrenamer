@@ -238,14 +238,15 @@ async function simpleRename(layerInfo: LayerInfo, prefix: string = ''): Promise<
   const node = await figma.getNodeByIdAsync(layerInfo.id);
   if (node) {
     const oldName = node.name;
-    const newName = generateSimpleName(layerInfo.type, [prefix]);
+    const newName = prefix ? `${prefix}-${renamedCount + 1}` : `${renamedCount + 1}`;
     node.name = newName;
     renamedCount++;
     console.log(`Renamed: ${oldName} -> ${newName}`);
   }
 
   for (const child of layerInfo.children) {
-    renamedCount += await simpleRename(child, layerInfo.name);
+    const childPrefix = prefix ? `${prefix}-${renamedCount}` : `${renamedCount}`;
+    renamedCount += await simpleRename(child, childPrefix);
   }
 
   return renamedCount;
@@ -416,10 +417,10 @@ Only respond with JSON and nothing else!!!`;
     const layerInfos = selection.map(getLayerInfo);
     let totalRenamedCount = 0;
 
-    for (const layerInfo of layerInfos) {
-      const renamedCount = await simpleRename(layerInfo);
+    for (let i = 0; i < layerInfos.length; i++) {
+      const renamedCount = await simpleRename(layerInfos[i], (i + 1).toString());
       totalRenamedCount += renamedCount;
-      console.log(`Renamed ${renamedCount} layers in ${layerInfo.name}`);
+      console.log(`Renamed ${renamedCount} layers in selection ${i + 1}`);
     }
 
     console.log(`Simple rename complete. Total renamed layers: ${totalRenamedCount}`);
