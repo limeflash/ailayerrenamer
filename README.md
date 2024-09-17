@@ -1,40 +1,58 @@
-Below are the steps to get your plugin running. You can also find instructions at:
+# AI Layer Renaming Plugin for Figma
 
-  https://www.figma.com/plugin-docs/plugin-quickstart-guide/
+This Figma plugin uses AI to analyze UI screenshots and intelligently rename layers based on their function and context.
 
-This plugin template uses Typescript and NPM, two standard tools in creating JavaScript applications.
+## Features
 
-First, download Node.js which comes with NPM. This will allow you to install TypeScript and other
-libraries. You can find the download link here:
+- Captures screenshots of selected Figma frames
+- Analyzes UI screenshots using AI
+- Generates contextual layer names based on UI analysis
+- Applies new names to layers automatically
+- Supports fuzzy matching for improved name application
 
-  https://nodejs.org/en/download/
+## Setup
 
-Next, install TypeScript using the command:
+1. Install [Node.js](https://nodejs.org/en/download/) (includes NPM)
+2. Install TypeScript globally:
+   ```
+   npm install -g typescript
+   ```
+3. In the plugin directory, install Figma plugin typings:
+   ```
+   npm install --save-dev @figma/plugin-typings
+   ```
 
-  npm install -g typescript
+## Configuration
 
-Finally, in the directory of your plugin, get the latest type definitions for the plugin API by running:
+The plugin requires the following settings:
 
-  npm install --save-dev @figma/plugin-typings
+- OpenRouter API Key
+- Screenshot Analysis Model
+- Layer Naming Model
 
-If you are familiar with JavaScript, TypeScript will look very familiar. In fact, valid JavaScript code
-is already valid Typescript code.
+These can be set and saved within the plugin interface.
 
-TypeScript adds type annotations to variables. This allows code editors such as Visual Studio Code
-to provide information about the Figma API while you are writing code, as well as help catch bugs
-you previously didn't notice.
+## Usage
 
-For more information, visit https://www.typescriptlang.org/
+1. Select a frame or component in your Figma file
+2. Run the plugin
+3. Configure API settings if not already set
+4. Click "Start Renaming" to begin the AI-powered renaming process
 
-Using TypeScript requires a compiler to convert TypeScript (code.ts) into JavaScript (code.js)
-for the browser to run.
+## Development
 
-We recommend writing TypeScript code using Visual Studio code:
+We recommend using Visual Studio Code:
 
-1. Download Visual Studio Code if you haven't already: https://code.visualstudio.com/.
-2. Open this directory in Visual Studio Code.
-3. Compile TypeScript to JavaScript: Run the "Terminal > Run Build Task..." menu item,
-    then select "npm: watch". You will have to do this again every time
-    you reopen Visual Studio Code.
+1. [Download Visual Studio Code](https://code.visualstudio.com/)
+2. Open the plugin directory in VS Code
+3. Start TypeScript compilation:
+   - Select "Terminal > Run Build Task..."
+   - Choose "npm: watch"
 
-That's it! Visual Studio Code will regenerate the JavaScript file every time you save.
+VS Code will automatically recompile JavaScript each time you save.
+
+## Additional Information
+
+- [Figma Plugin API Documentation](https://www.figma.com/plugin-docs/plugin-quickstart-guide/)
+- [TypeScript Official Website](https://www.typescriptlang.org/)
+- [OpenRouter API Documentation](https://openrouter.ai/docs)
