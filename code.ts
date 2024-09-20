@@ -2,6 +2,13 @@ let OPENROUTER_API_KEY = '';
 let SCREENSHOT_ANALYSIS_MODEL = '';
 let LAYER_NAMING_MODEL = '';
 
+// Add this function to load settings
+async function loadSettings() {
+  OPENROUTER_API_KEY = await figma.clientStorage.getAsync('apiKey') || '';
+  SCREENSHOT_ANALYSIS_MODEL = await figma.clientStorage.getAsync('screenshotAnalysisModel') || '';
+  LAYER_NAMING_MODEL = await figma.clientStorage.getAsync('layerNamingModel') || '';
+}
+
 function logWithoutSensitiveData(data: any) {
   const sanitized = JSON.parse(JSON.stringify(data));
   if (sanitized.headers && sanitized.headers.Authorization) {
@@ -309,10 +316,8 @@ figma.on('selectionchange', updateSelectionInfo);
 figma.ui.onmessage = async (msg: { type: string; apiKey?: string; screenshotAnalysisModel?: string; layerNamingModel?: string; }) => {
   console.log('Received message:', msg);
   if (msg.type === 'loadSettings') {
-    const apiKey = await figma.clientStorage.getAsync('apiKey') || '';
-    const screenshotAnalysisModel = await figma.clientStorage.getAsync('screenshotAnalysisModel') || '';
-    const layerNamingModel = await figma.clientStorage.getAsync('layerNamingModel') || '';
-    figma.ui.postMessage({ type: 'settingsLoaded', apiKey, screenshotAnalysisModel, layerNamingModel });
+    await loadSettings();
+    figma.ui.postMessage({ type: 'settingsLoaded', apiKey: OPENROUTER_API_KEY, screenshotAnalysisModel: SCREENSHOT_ANALYSIS_MODEL, layerNamingModel: LAYER_NAMING_MODEL });
   } else if (msg.type === 'useLoadedSettings' || msg.type === 'saveSettings') {
     OPENROUTER_API_KEY = msg.apiKey || '';
     SCREENSHOT_ANALYSIS_MODEL = msg.screenshotAnalysisModel || '';
@@ -352,7 +357,11 @@ figma.ui.onmessage = async (msg: { type: string; apiKey?: string; screenshotAnal
   }
 };
 
-figma.on('run', updateSelectionInfo);
+// Modify the 'run' event handler
+figma.on('run', async () => {
+  await loadSettings();
+  updateSelectionInfo();
+});
 
 async function applyRemainingNames(layerInfo: LayerInfo, newNames: Record<string, string>, unusedNames: string[]): Promise<void> {
   const applyToNode = async (node: BaseNode) => {

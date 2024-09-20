@@ -80,3 +80,25 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## TODO
+
+### 1. Enhanced Model Configuration
+- [ ] Add option to enable/disable specific AI models in settings
+- [ ] Allow users to use only the screenshot analysis model if desired
+
+### 2. Layer Cleanup Functionality
+- [ ] Implement ungroup single-layered groups feature
+- [ ] Add option to delete hidden layers
+- [ ] Sort layers by X and Y position while maintaining stacking order
+- [ ] Implement pixel-perfect adjustments (remove fractional values from dimensions)
+
+### 3. Performance Improvements
+- [ ] Optimize AI analysis for faster processing
+- [ ] Enhance naming accuracy through improved algorithms
+
+### 4. Layer Structure Database
+- [ ] Develop system to save and store selected layer structures
+- [ ] Implement neighbor-based naming for improved consistency
+- [ ] Create feature to compare new layouts with stored structures
+- [ ] Add functionality to export stored structures back to Figma
